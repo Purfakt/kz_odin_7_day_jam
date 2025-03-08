@@ -18,6 +18,7 @@ CANVAS_SIZE :: GRID_WIDTH * CELL_SIZE
 Level :: struct {
 	tiles:      [dynamic]Cell,
 	player_pos: Vec2i,
+	exit_pos:   Vec2i,
 	width:      int,
 	height:     int,
 }
@@ -61,6 +62,7 @@ load_level :: proc(file_path: string) -> (level: Level, err: string) {
 
 	tiles := make([dynamic]Cell, width * height)
 	player_pos: Vec2i
+	exit_pos: Vec2i
 
 	for y := 0; y < height; y += 1 {
 		line := lines[y]
@@ -75,6 +77,7 @@ load_level :: proc(file_path: string) -> (level: Level, err: string) {
 				cell_type = .Floor
 			case 'e':
 				cell_type = .Exit
+				exit_pos = {x, y}
 			case 'p':
 				player_pos = {x, y}
 			}
@@ -83,7 +86,7 @@ load_level :: proc(file_path: string) -> (level: Level, err: string) {
 		}
 	}
 
-	level = {tiles, player_pos, width, height}
+	level = {tiles, player_pos, exit_pos, width, height}
 	return
 }
 
