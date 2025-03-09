@@ -32,12 +32,21 @@ import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 360
 
+GS_Menu :: struct {}
+GS_Playing :: struct {}
+GS_Won :: struct {}
+
+GameState :: union {
+	GS_Menu,
+	GS_Playing,
+	GS_Won,
+}
+
 Game_Memory :: struct {
 	levels:            [dynamic]Level,
 	current_level_idx: int,
 	player:            Player,
-	run:               bool,
-	win:               bool,
+	state:             GameState,
 }
 
 g_mem: ^Game_Memory
@@ -75,7 +84,7 @@ check_exit :: proc() {
 			current_level_idx^ += 1
 			load_level(current_level_idx^)
 		} else {
-			g_mem.win = true
+			g_mem.state = GS_Won{}
 		}
 
 	}
@@ -91,13 +100,14 @@ draw :: proc(dt: f32) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 
-	if (g_mem.win) {
+	switch state in g_mem.state {
+	case GS_Won:
 		rl.BeginMode2D(ui_camera())
 		rl.DrawText(fmt.ctprintf("YOU WON"), 140, 90 - 4, 8, rl.WHITE)
 
 		rl.EndMode2D()
-
-	} else {
+		break
+	case GS_Playing:
 		rl.BeginMode2D(game_camera())
 		draw_level(g_mem.levels[g_mem.current_level_idx])
 		draw_player(g_mem.player)
@@ -107,7 +117,10 @@ draw :: proc(dt: f32) {
 
 		rl.DrawText(fmt.ctprintf("player_pos: %v", g_mem.player.current_pos), 5, 5, 8, rl.WHITE)
 
-		rl.EndMode2D()}
+		rl.EndMode2D()
+	case GS_Menu:
+		break
+	}
 
 	rl.EndDrawing()
 }
@@ -140,7 +153,7 @@ game_init :: proc() {
 	levels[1] = lvl2
 
 	g_mem^ = Game_Memory {
-		run    = true,
+		state  = GS_Playing{},
 		levels = levels,
 	}
 
@@ -158,7 +171,7 @@ game_should_run :: proc() -> bool {
 		}
 	}
 
-	return g_mem.run
+	return true
 }
 
 @(export)
