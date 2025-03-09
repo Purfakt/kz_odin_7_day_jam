@@ -165,7 +165,7 @@ game_init_window :: proc() {
 	rl.SetConfigFlags({.VSYNC_HINT})
 	rl.InitWindow(1280, 720, "Dark Pathways")
 	rl.SetWindowPosition(600, 200)
-	rl.SetTargetFPS(500)
+	rl.SetTargetFPS(60)
 	rl.SetExitKey(nil)
 }
 
@@ -205,7 +205,7 @@ game_should_run :: proc() -> bool {
 @(export)
 game_shutdown :: proc() {
 	for level in g_mem.levels {
-		delete(level.tiles)
+		delete(level.cells)
 	}
 	delete(g_mem.levels)
 	free(g_mem)
