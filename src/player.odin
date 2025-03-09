@@ -47,11 +47,17 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 
 		grid_size := (level.width * level.height) - 1
 		idx := clamp((new_target.y * level.width) + new_target.x, 0, grid_size)
-		cell := level.cells[idx]
+		cell := &level.cells[idx]
 
-		#partial switch t in cell.type {
-		case CellFloor, CellExit:
+		if cell.walkable {
 			target_pos^ = new_target
+
+			if floor, is_floor := cell.type.(CellFloor); is_floor {
+				if _, has_item := floor.item.(Item); has_item {
+					floor.item = false
+					cell^.type = floor
+				}
+			}
 		}
 	}
 

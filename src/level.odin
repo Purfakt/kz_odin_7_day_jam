@@ -24,16 +24,28 @@ Level :: struct {
 COL_FLOOR :: rl.Color{10, 10, 10, 255}
 COL_WALL :: rl.Color{27, 28, 51, 255}
 COL_WALL_TORCH :: rl.Color{230, 218, 41, 255}
+COL_ITEM_TORCH :: rl.Color{218, 125, 34, 255}
 COL_PLAYER :: rl.Color{253, 253, 248, 255}
 COL_EXIT :: rl.Color{40, 198, 65, 255}
 
-Item :: enum {
+ItemType :: enum {
 	Torch,
+}
+
+Item :: struct {
+	type:  ItemType,
+	light: int,
+	color: rl.Color,
+}
+
+MaybeItem :: union {
+	bool,
+	Item,
 }
 
 CellVoid :: struct {}
 CellFloor :: struct {
-	item: Item,
+	item: MaybeItem,
 }
 CellWall :: struct {
 	torch: bool,
@@ -51,6 +63,7 @@ Cell :: struct {
 	pos:           Vec2i,
 	static_light:  int,
 	dynamic_light: int,
+	walkable:      bool,
 	type:          CellType,
 }
 
@@ -73,8 +86,8 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	player_pos: Vec2i
 	exit_pos: Vec2i
 
-	light_sources := make(map[Vec2i]int)
-	defer delete(light_sources)
+	s_light_sources := make(map[Vec2i]int)
+	defer delete(s_light_sources)
 
 	for y := 0; y < height; y += 1 {
 		for x := 0; x < width; x += 1 {
@@ -82,7 +95,9 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 
 			cell_type: CellType = CellVoid{}
 			pos: Vec2i = {x, y}
-			light := 0
+			walkable := false
+			s_light := 0
+			d_light := 0
 
 			switch color.rgba {
 			case COL_WALL:
@@ -90,14 +105,21 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			case COL_WALL_TORCH:
 				cell_type = CellWall{true}
-				light = MAX_LIGHT
-				light_sources[pos] = light
+				s_light = MAX_LIGHT
+				s_light_sources[pos] = s_light
 				break
 			case COL_FLOOR:
-				cell_type = CellFloor{}
+				cell_type = CellFloor{false}
+				walkable = true
+			case COL_ITEM_TORCH:
+				cell_type = CellFloor{Item{.Torch, 5, COL_ITEM_TORCH}}
+				d_light = 5
+				walkable = true
+				break
 			case COL_EXIT:
 				cell_type = CellExit{}
 				exit_pos = {x, y}
+				walkable = true
 				break
 			case COL_PLAYER:
 				cell_type = CellFloor{}
@@ -105,11 +127,11 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			}
 
-			tiles[(y * width) + x] = Cell{pos, light, light, cell_type}
+			tiles[(y * width) + x] = Cell{pos, s_light, d_light, walkable, cell_type}
 		}
 	}
 
-	for source, strength in light_sources {
+	for source, strength in s_light_sources {
 		lit_cells := get_cells_in_radius(tiles, width, height, source, strength)
 		defer delete(lit_cells)
 
@@ -215,35 +237,37 @@ draw_level :: proc(level: Level) {
 		color: rl.Color
 		light := c.dynamic_light
 		extra := false
-		extra_proc: proc(x: i32, y: i32, light: int)
+		extra_col: rl.Color
 
 		switch t in c.type {
 		case CellVoid:
 			break
 		case CellFloor:
 			color = COL_FLOOR
+			if item, has_item := t.item.(Item); has_item {
+				extra = true
+				extra_col = item.color
+			}
 		case CellExit:
 			color = COL_EXIT
 		case CellWall:
 			color = COL_WALL
 			if t.torch {
 				extra = true
-				extra_proc = proc(x: i32, y: i32, light: int) {
-					half := i32(CELL_SIZE / 2)
-					rl.DrawRectangle(
-						x + half / 2,
-						y + half / 2,
-						half,
-						half,
-						get_dimmed_color(light, rl.GOLD),
-					)
-				}
+				extra_col = rl.GOLD
 			}
 		}
 
 		rl.DrawRectangle(x, y, CELL_SIZE, CELL_SIZE, get_dimmed_color(light, color))
 		if extra {
-			extra_proc(x, y, light)
+			half := i32(CELL_SIZE / 2)
+			rl.DrawRectangle(
+				x + half / 2,
+				y + half / 2,
+				half,
+				half,
+				get_dimmed_color(light, rl.GOLD),
+			)
 		}
 
 		if (g_mem.debug) {
