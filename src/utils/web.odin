@@ -3,7 +3,6 @@
 // stuff emscripten exposes. You can read the files that get bundled by
 // `--preload-file assets` in `build_web` script.
 
-
 package utils
 
 import "base:runtime"

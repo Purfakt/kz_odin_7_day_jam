@@ -30,14 +30,14 @@ package game
 import "core:fmt"
 import rl "vendor:raylib"
 
-PIXEL_WINDOW_HEIGHT :: 180
+PIXEL_WINDOW_HEIGHT :: 360
 
 Game_Memory :: struct {
-	levels:        [dynamic]Level,
-	current_level: int,
-	player:        Player,
-	run:           bool,
-	win:           bool,
+	levels:            [dynamic]Level,
+	current_level_idx: int,
+	player:            Player,
+	run:               bool,
+	win:               bool,
 }
 
 g_mem: ^Game_Memory
@@ -57,27 +57,33 @@ ui_camera :: proc() -> rl.Camera2D {
 	return {zoom = f32(rl.GetScreenHeight()) / PIXEL_WINDOW_HEIGHT}
 }
 
-load_next_level :: proc() {
-	if g_mem.current_level < len(g_mem.levels) - 1 {
-		g_mem.current_level += 1
-		player_pos := g_mem.levels[g_mem.current_level].player_pos
-		g_mem.player.current_pos = player_pos
-		g_mem.player.target_pos = player_pos
-		g_mem.player.screen_pos = {f32(player_pos.x * CELL_SIZE), f32(player_pos.y * CELL_SIZE)}
-	} else {
-		g_mem.win = true
-	}
+load_level :: proc(level_num: int) {
+	player_pos := g_mem.levels[g_mem.current_level_idx].player_pos
+	g_mem.player.current_pos = player_pos
+	g_mem.player.target_pos = player_pos
+	g_mem.player.screen_pos = {f32(player_pos.x * CELL_SIZE), f32(player_pos.y * CELL_SIZE)}
+	g_mem.player.can_move = true
 }
 
 check_exit :: proc() {
-	if g_mem.player.current_pos == g_mem.levels[g_mem.current_level].exit_pos {
-		load_next_level()
+	player_pos := g_mem.player.current_pos
+	current_level_idx := &g_mem.current_level_idx
+	current_level := g_mem.levels[current_level_idx^]
+
+	if player_pos == current_level.exit_pos {
+		if current_level_idx^ < len(g_mem.levels) - 1 {
+			current_level_idx^ += 1
+			load_level(current_level_idx^)
+		} else {
+			g_mem.win = true
+		}
+
 	}
 }
 
 update :: proc(dt: f32) {
 	check_exit()
-	move_player(&g_mem.player, &g_mem.levels[g_mem.current_level], dt)
+	move_player(&g_mem.player, &g_mem.levels[g_mem.current_level_idx], dt)
 
 }
 
@@ -87,24 +93,18 @@ draw :: proc(dt: f32) {
 
 	if (g_mem.win) {
 		rl.BeginMode2D(ui_camera())
-
-		// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
-		// cleared at the end of the frame by the main application, meaning inside
-		// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
 		rl.DrawText(fmt.ctprintf("YOU WON"), 140, 90 - 4, 8, rl.WHITE)
 
 		rl.EndMode2D()
 
-	} else {rl.BeginMode2D(game_camera())
-		draw_level(g_mem.levels[g_mem.current_level])
+	} else {
+		rl.BeginMode2D(game_camera())
+		draw_level(g_mem.levels[g_mem.current_level_idx])
 		draw_player(g_mem.player)
 		rl.EndMode2D()
 
 		rl.BeginMode2D(ui_camera())
 
-		// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
-		// cleared at the end of the frame by the main application, meaning inside
-		// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
 		rl.DrawText(fmt.ctprintf("player_pos: %v", g_mem.player.current_pos), 5, 5, 8, rl.WHITE)
 
 		rl.EndMode2D()}
@@ -121,8 +121,8 @@ game_update :: proc() {
 
 @(export)
 game_init_window :: proc() {
-	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
-	rl.InitWindow(1280, 720, "Odin + Raylib + Hot Reload template!")
+	rl.SetConfigFlags({.VSYNC_HINT})
+	rl.InitWindow(1280, 720, "Dark Pathways")
 	rl.SetWindowPosition(600, 200)
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
@@ -132,29 +132,19 @@ game_init_window :: proc() {
 game_init :: proc() {
 	g_mem = new(Game_Memory)
 
-	lvl1, _ := load_level("assets/lvl01.txt")
-	lvl2, _ := load_level("assets/lvl02.txt")
+	lvl1, _ := load_level_png("assets/level01.png")
+	lvl2, _ := load_level_png("assets/level02.png")
 
 	levels := make([dynamic]Level, 2)
 	levels[0] = lvl1
 	levels[1] = lvl2
 
-	player_pos := lvl1.player_pos
-
-
-	player := Player {
-		screen_pos  = {f32(player_pos.x * CELL_SIZE), f32(player_pos.y * CELL_SIZE)},
-		current_pos = player_pos,
-		target_pos  = player_pos,
-		can_move    = true,
-	}
-
 	g_mem^ = Game_Memory {
-		run           = true,
-		levels        = levels,
-		current_level = 0,
-		player        = player,
+		run    = true,
+		levels = levels,
 	}
+
+	load_level(0)
 
 	game_hot_reloaded(g_mem)
 }

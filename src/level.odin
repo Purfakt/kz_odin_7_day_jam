@@ -1,8 +1,8 @@
 package game
 
-// import "core:fmt"
-import "core:os"
+import "core:fmt"
 import "core:strings"
+import u "utils"
 import rl "vendor:raylib"
 
 Vec2i :: [2]int
@@ -10,10 +10,7 @@ Vec2i :: [2]int
 //      GRID
 // --------------
 
-GRID_WIDTH :: 20
-GRID_SIZE :: GRID_WIDTH * GRID_WIDTH
 CELL_SIZE :: 16
-CANVAS_SIZE :: GRID_WIDTH * CELL_SIZE
 
 Level :: struct {
 	tiles:      [dynamic]Cell,
@@ -22,6 +19,11 @@ Level :: struct {
 	width:      int,
 	height:     int,
 }
+
+COL_FLOOR :: rl.Color{10, 10, 10, 255}
+COL_WALL :: rl.Color{27, 28, 51, 255}
+COL_PLAYER :: rl.Color{253, 253, 248, 255}
+COL_EXIT :: rl.Color{40, 198, 65, 255}
 
 CellType :: enum {
 	Void,
@@ -35,8 +37,58 @@ Cell :: struct {
 	type: CellType,
 }
 
-load_level :: proc(file_path: string) -> (level: Level, err: string) {
-	data, ok := os.read_entire_file(file_path)
+
+load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
+	image_data, ok := u.read_entire_file(file_path)
+
+	if !ok {
+		err = "Failed to load image"
+		return
+	}
+
+	defer delete(image_data)
+
+	image := rl.LoadImageFromMemory(".png", rawptr(&image_data[0]), i32(len(image_data)))
+
+	width := int(image.width)
+	height := int(image.height)
+	tiles := make([dynamic]Cell, width * height)
+	player_pos: Vec2i
+	exit_pos: Vec2i
+
+	for y := 0; y < height; y += 1 {
+		for x := 0; x < width; x += 1 {
+			color := rl.GetImageColor(image, i32(x), i32(y))
+
+			cell_type: CellType = .Void
+			pos: Vec2i = {x, y}
+
+			switch color.rgba {
+			case COL_WALL:
+				cell_type = .Wall
+				break
+			case COL_FLOOR:
+				cell_type = .Floor
+			case COL_EXIT:
+				cell_type = .Exit
+				exit_pos = {x, y}
+				break
+			case COL_PLAYER:
+				cell_type = .Floor
+				player_pos = {x, y}
+				break
+			}
+
+			tiles[(y * width) + x] = Cell{pos, cell_type}
+		}
+	}
+
+	level = {tiles, player_pos, exit_pos, width, height}
+	return
+}
+
+load_level_text :: proc(file_path: string) -> (level: Level, err: string) {
+	data, ok := u.read_entire_file(file_path)
 	if !ok {
 		err = "can't read file"
 		return
@@ -99,13 +151,39 @@ draw_level :: proc(level: Level) {
 		switch t.type {
 		case .Void:
 		case .Floor:
-			color = rl.BLACK
+			color = COL_FLOOR
 		case .Exit:
-			color = rl.DARKBROWN
+			color = COL_EXIT
 		case .Wall:
-			color = rl.GRAY
+			color = COL_WALL
 		}
 
 		rl.DrawRectangle(x, y, CELL_SIZE, CELL_SIZE, color)
 	}
+}
+
+draw_level_text :: proc(level: Level) {
+	old_y := 0
+	for t in level.tiles[:] {
+		char: string
+
+		switch t.type {
+		case .Void:
+			char = "-"
+		case .Floor:
+			char = "."
+		case .Exit:
+			char = "e"
+		case .Wall:
+			char = "x"
+		}
+
+
+		if old_y != t.pos.y {
+			fmt.println()
+			old_y = t.pos.y
+		}
+		fmt.print(char)
+	}
+	fmt.println()
 }

@@ -1,6 +1,5 @@
 package game
 
-import "core:fmt"
 import rl "vendor:raylib"
 
 Player :: struct {
@@ -46,10 +45,10 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 			return
 		}
 
-		idx := clamp((new_target.y * level.width) + new_target.x, 0, GRID_SIZE - 1)
+		grid_size := (level.width * level.height) - 1
+		idx := clamp((new_target.y * level.width) + new_target.x, 0, grid_size)
 		cell := level.tiles[idx]
 
-		fmt.printfln("{}", cell)
 		#partial switch cell.type {
 		case .Floor, .Exit:
 			target_pos^ = new_target
