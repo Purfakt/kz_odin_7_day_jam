@@ -47,6 +47,7 @@ Game_Memory :: struct {
 	current_level_idx: int,
 	player:            Player,
 	state:             GameState,
+	debug:             bool,
 }
 
 g_mem: ^Game_Memory
@@ -90,10 +91,28 @@ check_exit :: proc() {
 	}
 }
 
+handle_input :: proc() {
+	if (rl.IsKeyPressed(.ONE)) {
+		g_mem.debug = !g_mem.debug
+	}
+
+	if (rl.IsKeyPressed(.FOUR)) {
+		load_level(g_mem.current_level_idx)
+	}
+	if (rl.IsKeyPressed(.FIVE)) {
+		next := g_mem.current_level_idx + 1
+		if next >= len(g_mem.levels) {
+			next = 0
+		}
+		g_mem.current_level_idx = next
+		load_level(g_mem.current_level_idx)
+	}
+}
+
 update :: proc(dt: f32) {
 	check_exit()
 	move_player(&g_mem.player, &g_mem.levels[g_mem.current_level_idx], dt)
-
+	handle_input()
 }
 
 draw :: proc(dt: f32) {
@@ -112,14 +131,23 @@ draw :: proc(dt: f32) {
 		draw_level(g_mem.levels[g_mem.current_level_idx])
 		draw_player(g_mem.player)
 		rl.EndMode2D()
-
-		rl.BeginMode2D(ui_camera())
-
-		rl.DrawText(fmt.ctprintf("player_pos: %v", g_mem.player.current_pos), 5, 5, 8, rl.WHITE)
-
-		rl.EndMode2D()
 	case GS_Menu:
 		break
+	}
+
+	if g_mem.debug {
+		rl.BeginMode2D(ui_camera())
+		rl.DrawText(
+			fmt.ctprintf(
+				"current_level: %v\nplayer_pos: %v",
+				g_mem.current_level_idx + 1,
+				g_mem.player.current_pos,
+			),
+			5,
+			5,
+			8,
+			rl.WHITE,
+		)
 	}
 
 	rl.EndDrawing()

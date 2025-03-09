@@ -9,7 +9,7 @@ Player :: struct {
 	can_move:    bool,
 }
 
-handle_input :: proc(current_pos: Vec2i) -> Vec2i {
+handle_movement_input :: proc(current_pos: Vec2i) -> Vec2i {
 	target: Vec2i = current_pos
 	if (rl.IsKeyDown(.A)) {
 		target.x -= 1
@@ -39,7 +39,7 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 	can_move := &player.can_move
 
 	if can_move^ {
-		new_target := handle_input(target_pos^)
+		new_target := handle_movement_input(target_pos^)
 
 		if new_target == target_pos^ {
 			return
