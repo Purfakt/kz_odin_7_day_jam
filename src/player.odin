@@ -3,11 +3,11 @@ package game
 import rl "vendor:raylib"
 
 Player :: struct {
-	screen_pos:  rl.Vector2,
-	current_pos: Vec2i,
-	target_pos:  Vec2i,
-	can_move:    bool,
-	light:       int,
+	using entity: Entity,
+	screen_pos:   rl.Vector2,
+	target_pos:   Vec2i,
+	can_move:     bool,
+	light:        int,
 }
 
 handle_movement_input :: proc(current_pos: Vec2i) -> Vec2i {
@@ -38,6 +38,11 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 	target_pos := &player.target_pos
 	screen_pos := &player.screen_pos
 	can_move := &player.can_move
+	has_moved := false
+
+	if player.light != 0 {
+		level.d_light_sources[player.id] = LightSource{player.target_pos, player.light}
+	}
 
 	if can_move^ {
 		new_target := handle_movement_input(target_pos^)
@@ -52,12 +57,12 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 
 		if cell.walkable {
 			target_pos^ = new_target
-
-			if floor, is_floor := cell.type.(CellFloor); is_floor {
-				if item, has_item := floor.item.(Item); has_item {
-					player.light += item.light
-					floor.item = false
-					cell^.type = floor
+			has_moved = true
+			if item, has_item := level.items[new_target]; has_item {
+				player.light += item.light
+				delete_key(&level.items, new_target)
+				if _, has_source := level.d_light_sources[item.id]; has_source {
+					delete_key(&level.d_light_sources, item.id)
 				}
 			}
 		}
@@ -67,7 +72,7 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 
 	if (rl.Vector2Distance(screen_pos^, tar_pos) < 0.1) {
 		screen_pos^ = tar_pos
-		player.current_pos = target_pos^
+		player.pos = target_pos^
 		can_move^ = true
 	} else {
 		screen_pos^.xy += (tar_pos.xy - screen_pos^.xy) * frame_time * speed

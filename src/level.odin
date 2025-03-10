@@ -13,12 +13,19 @@ Vec2i :: [2]int
 CELL_SIZE :: 16
 MAX_LIGHT :: 16
 
+LightSource :: struct {
+	pos:      Vec2i,
+	strength: int,
+}
+
 Level :: struct {
-	cells:      [dynamic]Cell,
-	player_pos: Vec2i,
-	exit_pos:   Vec2i,
-	width:      int,
-	height:     int,
+	cells:            [dynamic]Cell,
+	items:            map[Vec2i]Item,
+	player_start_pos: Vec2i,
+	exit_pos:         Vec2i,
+	width:            int,
+	height:           int,
+	d_light_sources:  map[Id]LightSource,
 }
 
 COL_FLOOR :: rl.Color{10, 10, 10, 255}
@@ -30,26 +37,20 @@ COL_EXIT :: rl.Color{40, 198, 65, 255}
 
 ItemType :: enum {
 	Torch,
+	WallTorch,
 }
 
 Item :: struct {
-	type:  ItemType,
-	light: int,
-	color: rl.Color,
-}
-
-MaybeItem :: union {
-	bool,
-	Item,
+	using entity: Entity,
+	type:         ItemType,
+	light:        int,
+	color:        rl.Color,
+	pickable:     bool,
 }
 
 CellVoid :: struct {}
-CellFloor :: struct {
-	item: MaybeItem,
-}
-CellWall :: struct {
-	torch: bool,
-}
+CellFloor :: struct {}
+CellWall :: struct {}
 CellExit :: struct {}
 
 CellType :: union {
@@ -60,13 +61,12 @@ CellType :: union {
 }
 
 Cell :: struct {
-	pos:           Vec2i,
-	static_light:  int,
-	dynamic_light: int,
-	walkable:      bool,
-	type:          CellType,
+	using entity: Entity,
+	s_light:      int,
+	d_light:      int,
+	walkable:     bool,
+	type:         CellType,
 }
-
 
 load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	image_data, ok := u.read_entire_file(file_path)
@@ -83,11 +83,15 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	width := int(image.width)
 	height := int(image.height)
 	tiles := make([dynamic]Cell, width * height)
+
 	player_pos: Vec2i
 	exit_pos: Vec2i
 
-	s_light_sources := make(map[Vec2i]int)
+	s_light_sources := make(map[Id]LightSource)
 	defer delete(s_light_sources)
+
+	d_light_sources := make(map[Id]LightSource)
+	items := make(map[Vec2i]Item)
 
 	for y := 0; y < height; y += 1 {
 		for x := 0; x < width; x += 1 {
@@ -104,16 +108,20 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				cell_type = CellWall{}
 				break
 			case COL_WALL_TORCH:
-				cell_type = CellWall{true}
+				cell_type = CellWall{}
 				s_light = MAX_LIGHT
-				s_light_sources[pos] = s_light
+				item := Item{{new_id(), pos}, .WallTorch, s_light, COL_WALL_TORCH, false}
+				s_light_sources[item.id] = {item.pos, item.light}
+				items[pos] = item
 				break
 			case COL_FLOOR:
-				cell_type = CellFloor{false}
+				cell_type = CellFloor{}
 				walkable = true
 			case COL_ITEM_TORCH:
-				cell_type = CellFloor{Item{.Torch, 5, COL_ITEM_TORCH}}
 				d_light = 5
+				item := Item{{new_id(), pos}, .Torch, d_light, COL_ITEM_TORCH, true}
+				d_light_sources[item.id] = {item.pos, item.light}
+				items[pos] = item
 				walkable = true
 				break
 			case COL_EXIT:
@@ -127,12 +135,19 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			}
 
-			tiles[(y * width) + x] = Cell{pos, s_light, d_light, walkable, cell_type}
+			tiles[(y * width) + x] = Cell{{new_id(), pos}, s_light, d_light, walkable, cell_type}
 		}
 	}
 
-	for source, strength in s_light_sources {
-		lit_cells := get_cells_in_radius(tiles, width, height, source, strength)
+	compute_s_light(tiles, s_light_sources, {width, height})
+
+	level = {tiles, items, player_pos, exit_pos, width, height, d_light_sources}
+	return
+}
+
+compute_s_light :: proc(tiles: [dynamic]Cell, light_sources: map[Id]LightSource, bounds: Vec2i) {
+	for _, source in light_sources {
+		lit_cells := get_cells_in_radius(tiles, bounds.x, bounds.y, source.pos, source.strength)
 		defer delete(lit_cells)
 
 		for idx_to_distance in lit_cells {
@@ -140,17 +155,35 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 			distance := idx_to_distance[1]
 			tile := tiles[idx]
 
-			lightm := max(tile.static_light, strength - distance)
+			lightm := max(tile.s_light, source.strength - distance)
 			fmt.printfln("{}, {}, {}", idx, tile.pos, lightm)
-			tiles[idx].static_light = lightm
-			tiles[idx].dynamic_light = lightm
+			tiles[idx].s_light = lightm
 		}
 	}
-
-	level = {tiles, player_pos, exit_pos, width, height}
-	return
 }
 
+compute_d_light :: proc(level: Level) {
+	for _, source in level.d_light_sources {
+		lit_cells := get_cells_in_radius(
+			level.cells,
+			level.width,
+			level.height,
+			source.pos,
+			source.strength,
+		)
+		defer delete(lit_cells)
+
+		for idx_to_distance in lit_cells {
+			idx := idx_to_distance[0]
+			distance := idx_to_distance[1]
+			cell := level.cells[idx]
+
+			lightm := max(cell.s_light, source.strength - distance)
+			fmt.printfln("{}, {}, {}", idx, cell.pos, lightm)
+			level.cells[idx].d_light = lightm
+		}
+	}
+}
 
 get_cells_in_radius :: proc(
 	tiles: [dynamic]Cell,
@@ -235,49 +268,49 @@ draw_level :: proc(level: Level) {
 		x := i32(c.pos.x * CELL_SIZE)
 		y := i32(c.pos.y * CELL_SIZE)
 		color: rl.Color
-		light := c.dynamic_light
-		extra := false
-		extra_col: rl.Color
+		s_light := c.s_light
+		d_light := c.d_light
 
 		switch t in c.type {
 		case CellVoid:
 			break
 		case CellFloor:
 			color = COL_FLOOR
-			if item, has_item := t.item.(Item); has_item {
-				extra = true
-				extra_col = item.color
-			}
 		case CellExit:
 			color = COL_EXIT
 		case CellWall:
 			color = COL_WALL
-			if t.torch {
-				extra = true
-				extra_col = rl.GOLD
-			}
 		}
+
+
+		light := max(d_light, s_light)
+		light = min(light, MAX_LIGHT)
 
 		rl.DrawRectangle(x, y, CELL_SIZE, CELL_SIZE, get_dimmed_color(light, color))
-		if extra {
-			half := i32(CELL_SIZE / 2)
-			rl.DrawRectangle(
-				x + half / 2,
-				y + half / 2,
-				half,
-				half,
-				get_dimmed_color(light, rl.GOLD),
-			)
-		}
 
-		if (g_mem.debug) {
-			rl.DrawText(
-				fmt.caprintf("{}", c.static_light, allocator = context.temp_allocator),
-				(x + CELL_SIZE / 2) - 3,
-				(y + CELL_SIZE / 2) - 4,
-				4,
-				rl.WHITE,
-			)
+		if g_mem.debug.active {
+			shown := true
+			dbg_light := light
+			switch g_mem.debug.debug_light {
+			case .None:
+				shown = false
+			case .Dynamic:
+				dbg_light = c.d_light
+			case .Static:
+				dbg_light = c.s_light
+			case .Both:
+				dbg_light = light
+			}
+
+			if shown {
+				rl.DrawText(
+					fmt.caprintf("{}", dbg_light, allocator = context.temp_allocator),
+					(x + CELL_SIZE / 2) - 3,
+					(y + CELL_SIZE / 2) - 4,
+					4,
+					rl.WHITE,
+				)
+			}
 		}
 	}
 }

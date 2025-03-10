@@ -42,12 +42,25 @@ GameState :: union {
 	GS_Won,
 }
 
+LEVEL_AMOUNT :: 2
+
+DebugLight :: enum {
+	None,
+	Static,
+	Dynamic,
+	Both,
+}
+DebugInfo :: struct {
+	active:      bool,
+	debug_light: DebugLight,
+}
+
 Game_Memory :: struct {
-	levels:            [dynamic]Level,
-	current_level_idx: int,
-	player:            Player,
-	state:             GameState,
-	debug:             bool,
+	level:    Level,
+	level_id: int,
+	player:   Player,
+	state:    GameState,
+	debug:    DebugInfo,
 }
 
 g_mem: ^Game_Memory
@@ -68,22 +81,31 @@ ui_camera :: proc() -> rl.Camera2D {
 }
 
 load_level :: proc(level_num: int) {
-	player_pos := g_mem.levels[g_mem.current_level_idx].player_pos
-	g_mem.player.current_pos = player_pos
-	g_mem.player.target_pos = player_pos
-	g_mem.player.screen_pos = {f32(player_pos.x * CELL_SIZE), f32(player_pos.y * CELL_SIZE)}
-	g_mem.player.can_move = true
+	level_string := fmt.aprintf("assets/level%2d.png", level_num)
+	g_mem.level, _ = load_level_png(level_string)
+	g_mem.level_id = level_num
+
+	player_pos := g_mem.level.player_start_pos
+
+	player := &g_mem.player
+
+	player.pos = player_pos
+	player.target_pos = player_pos
+	player.screen_pos = {f32(player_pos.x * CELL_SIZE), f32(player_pos.y * CELL_SIZE)}
+	player.can_move = true
+	player.light = 0
 }
 
 check_exit :: proc() {
-	player_pos := g_mem.player.current_pos
-	current_level_idx := &g_mem.current_level_idx
-	current_level := g_mem.levels[current_level_idx^]
+	player_pos := g_mem.player.pos
+	current_level := g_mem.level
+
+	current_level_id := &g_mem.level_id
 
 	if player_pos == current_level.exit_pos {
-		if current_level_idx^ < len(g_mem.levels) - 1 {
-			current_level_idx^ += 1
-			load_level(current_level_idx^)
+		if current_level_id^ <= LEVEL_AMOUNT - 1 {
+			current_level_id^ += 1
+			load_level(current_level_id^)
 		} else {
 			g_mem.state = GS_Won{}
 		}
@@ -93,26 +115,44 @@ check_exit :: proc() {
 
 handle_input :: proc() {
 	if (rl.IsKeyPressed(.ONE)) {
-		g_mem.debug = !g_mem.debug
+		g_mem.debug.active = !g_mem.debug.active
+	}
+
+	if (rl.IsKeyPressed(.TWO)) {
+		debug_light := g_mem.debug.debug_light
+
+		switch debug_light {
+		case .None:
+			debug_light = .Static
+		case .Static:
+			debug_light = .Dynamic
+		case .Dynamic:
+			debug_light = .Both
+		case .Both:
+			debug_light = .None
+		}
+
+		g_mem.debug.debug_light = debug_light
 	}
 
 	if (rl.IsKeyPressed(.FOUR)) {
-		load_level(g_mem.current_level_idx)
+		load_level(g_mem.level_id)
 	}
 	if (rl.IsKeyPressed(.FIVE)) {
-		next := g_mem.current_level_idx + 1
-		if next >= len(g_mem.levels) {
-			next = 0
+		next := g_mem.level_id + 1
+		if next > LEVEL_AMOUNT {
+			next = 1
 		}
-		g_mem.current_level_idx = next
-		load_level(g_mem.current_level_idx)
+		g_mem.level_id = next
+		load_level(g_mem.level_id)
 	}
 }
 
 update :: proc(dt: f32) {
 	check_exit()
-	move_player(&g_mem.player, &g_mem.levels[g_mem.current_level_idx], dt)
+	move_player(&g_mem.player, &g_mem.level, dt)
 	handle_input()
+	compute_d_light(g_mem.level)
 }
 
 draw :: proc(dt: f32) {
@@ -128,21 +168,22 @@ draw :: proc(dt: f32) {
 		break
 	case GS_Playing:
 		rl.BeginMode2D(game_camera())
-		draw_level(g_mem.levels[g_mem.current_level_idx])
+		draw_level(g_mem.level)
 		draw_player(g_mem.player)
 		rl.EndMode2D()
 	case GS_Menu:
 		break
 	}
 
-	if g_mem.debug {
+	if g_mem.debug.active {
 		rl.BeginMode2D(ui_camera())
 		rl.DrawText(
 			fmt.ctprintf(
-				"current_level: %v\nplayer_pos: %v\nplayer_light: %v",
-				g_mem.current_level_idx + 1,
-				g_mem.player.current_pos,
+				"current_level: %v\nplayer_pos: %v\nplayer_light: %v,light_mode: %v",
+				g_mem.level_id + 1,
+				g_mem.player.pos,
 				g_mem.player.light,
+				g_mem.debug.debug_light,
 			),
 			5,
 			5,
@@ -174,19 +215,12 @@ game_init_window :: proc() {
 game_init :: proc() {
 	g_mem = new(Game_Memory)
 
-	lvl1, _ := load_level_png("assets/level01.png")
-	lvl2, _ := load_level_png("assets/level02.png")
-
-	levels := make([dynamic]Level, 2)
-	levels[0] = lvl1
-	levels[1] = lvl2
-
 	g_mem^ = Game_Memory {
-		state  = GS_Playing{},
-		levels = levels,
+		state = GS_Playing{},
+		player = Player{id = new_id()},
 	}
 
-	load_level(0)
+	load_level(1)
 
 	game_hot_reloaded(g_mem)
 }
@@ -205,10 +239,6 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	for level in g_mem.levels {
-		delete(level.cells)
-	}
-	delete(g_mem.levels)
 	free(g_mem)
 }
 
