@@ -7,6 +7,7 @@ Player :: struct {
 	current_pos: Vec2i,
 	target_pos:  Vec2i,
 	can_move:    bool,
+	light:       int,
 }
 
 handle_movement_input :: proc(current_pos: Vec2i) -> Vec2i {
@@ -53,7 +54,8 @@ move_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 			target_pos^ = new_target
 
 			if floor, is_floor := cell.type.(CellFloor); is_floor {
-				if _, has_item := floor.item.(Item); has_item {
+				if item, has_item := floor.item.(Item); has_item {
+					player.light += item.light
 					floor.item = false
 					cell^.type = floor
 				}

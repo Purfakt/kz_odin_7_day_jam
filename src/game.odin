@@ -139,9 +139,10 @@ draw :: proc(dt: f32) {
 		rl.BeginMode2D(ui_camera())
 		rl.DrawText(
 			fmt.ctprintf(
-				"current_level: %v\nplayer_pos: %v",
+				"current_level: %v\nplayer_pos: %v\nplayer_light: %v",
 				g_mem.current_level_idx + 1,
 				g_mem.player.current_pos,
+				g_mem.player.light,
 			),
 			5,
 			5,
