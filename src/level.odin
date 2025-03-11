@@ -15,7 +15,7 @@ MAX_LIGHT :: 16
 
 LightSource :: struct {
 	pos:      Vec2i,
-	strength: int,
+	strength: f32,
 }
 
 Level :: struct {
@@ -43,7 +43,7 @@ ItemType :: enum {
 Item :: struct {
 	using entity: Entity,
 	type:         ItemType,
-	light:        int,
+	light:        f32,
 	color:        rl.Color,
 	pickable:     bool,
 }
@@ -62,8 +62,8 @@ CellType :: union {
 
 Cell :: struct {
 	using entity: Entity,
-	s_light:      int,
-	d_light:      int,
+	s_light:      f32,
+	d_light:      f32,
 	walkable:     bool,
 	type:         CellType,
 }
@@ -100,9 +100,9 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 
 			cell_type: CellType = CellVoid{}
 			pos: Vec2i = {x, y}
-			walkable := false
-			s_light := 0
-			d_light := 0
+			walkable: bool
+			s_light: f32
+			d_light: f32
 
 			switch color.rgba {
 			case COL_WALL:
@@ -170,7 +170,7 @@ compute_s_light :: proc(cells: [dynamic]Cell, light_sources: map[Id]LightSource,
 			distance := idx_to_distance[1]
 			cell := cells[idx]
 
-			lightm := max(cell.s_light, source.strength - distance)
+			lightm := max(cell.s_light, source.strength - f32(distance))
 			cells[idx].s_light = lightm
 		}
 	}
@@ -192,7 +192,7 @@ compute_d_light :: proc(level: Level) {
 			distance := idx_to_distance[1]
 			cell := level.cells[idx]
 
-			lightm := max(cell.d_light, source.strength - distance)
+			lightm := max(cell.d_light, source.strength - f32(distance))
 			level.cells[idx].d_light = lightm
 		}
 	}
@@ -202,7 +202,7 @@ get_cells_in_radius :: proc(
 	cells: [dynamic]Cell,
 	width, height: int,
 	source: Vec2i,
-	radius: int,
+	radius: f32,
 ) -> [dynamic][2]int {
 	result := make([dynamic][2]int)
 	visited := make(map[int]bool)
@@ -231,7 +231,7 @@ get_cells_in_radius :: proc(
 
 		append(&result, [2]int{idx, dist})
 
-		if dist >= radius {
+		if dist >= int(radius) {
 			continue
 		}
 
@@ -268,11 +268,11 @@ get_cells_in_radius :: proc(
 	return result
 }
 
-get_dimmed_color :: proc(light: int, color: rl.Color) -> rl.Color {
-	if (light == 0) {
+get_dimmed_color :: proc(light: f32, color: rl.Color) -> rl.Color {
+	if (light <= 0.01) {
 		return rl.BLACK
 	}
-	light_ratio := math.log2_f32(f32(light)) / math.log2_f32(MAX_LIGHT)
+	light_ratio := math.log2_f32(light) / math.log2_f32(MAX_LIGHT)
 	return rl.ColorLerp(rl.BLACK, color, light_ratio)
 }
 

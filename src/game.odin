@@ -33,18 +33,51 @@ import rl "vendor:raylib"
 PIXEL_WINDOW_HEIGHT :: 360
 
 GS_Menu :: struct {}
-GS_Playing :: struct {
+
+Progress :: enum {
+	BEGIN,
+	NEW_LEVEL,
+	HAS_TORCH,
+}
+GS_InLevel :: struct {
 	current_zoom: f32,
 	target_zoom:  f32,
 	zoom_speed:   f32,
+	progress:     Progress,
+}
+
+GS_LevelTransition :: struct {
+	time_fade_out: f32,
+	time_fade_in:  f32,
+	fade:          f32,
+	level_loaded:  bool,
+	next_level:    int,
 }
 
 GS_Won :: struct {}
 
 GameState :: union {
 	GS_Menu,
-	GS_Playing,
+	GS_InLevel,
+	GS_LevelTransition,
 	GS_Won,
+}
+
+init_gs_in_level :: proc() -> GS_InLevel {
+	return GS_InLevel{current_zoom = 1, target_zoom = 1, zoom_speed = 2}
+}
+
+init_gs_menu :: proc() -> GS_Menu {
+	return GS_Menu{}
+}
+
+init_gs_level_transition :: proc(next_level: int) -> GS_LevelTransition {
+	return GS_LevelTransition {
+		time_fade_in = 0,
+		time_fade_out = 0,
+		level_loaded = false,
+		next_level = next_level,
+	}
 }
 
 LEVEL_AMOUNT :: 2
@@ -76,7 +109,7 @@ game_camera :: proc() -> rl.Camera2D {
 
 	zoom := f32(1)
 
-	if state, ok := &g_mem.state.(GS_Playing); ok {
+	if state, ok := &g_mem.state.(GS_InLevel); ok {
 		zoom = state.current_zoom
 	}
 
@@ -104,21 +137,22 @@ load_level :: proc(level_num: int) {
 	player.light = 0
 }
 
-check_exit :: proc() {
+check_exit :: proc() -> bool {
 	player_pos := g_mem.player.pos
 	current_level := g_mem.level
 
-	current_level_id := &g_mem.level_id
+	current_level_id := g_mem.level_id
 
 	if player_pos == current_level.exit_pos {
-		if current_level_id^ <= LEVEL_AMOUNT - 1 {
-			current_level_id^ += 1
-			load_level(current_level_id^)
+		if current_level_id <= LEVEL_AMOUNT - 1 {
+			g_mem.state = init_gs_level_transition(g_mem.level_id + 1)
 		} else {
 			g_mem.state = GS_Won{}
 		}
-
+		return true
 	}
+
+	return false
 }
 
 handle_input :: proc() {
@@ -163,8 +197,12 @@ update_light_zoom :: proc() {
 	current_cell := level.cells[id]
 	dt := rl.GetFrameTime()
 
-	if state, ok := &g_mem.state.(GS_Playing); ok {
-		light := max(current_cell.d_light, current_cell.s_light, player.light)
+	if state, ok := &g_mem.state.(GS_InLevel); ok {
+		light := max(
+			current_cell.d_light,
+			current_cell.s_light,
+			(player.torch_on ? player.light : 0),
+		)
 
 		target_zoom := f32(1)
 
@@ -197,46 +235,154 @@ update_light_zoom :: proc() {
 }
 
 update :: proc(dt: f32) {
-	check_exit()
-	move_player(&g_mem.player, &g_mem.level, dt)
-	update_light_zoom()
-	handle_input()
-	clear_d_light(g_mem.level.cells)
-	compute_d_light(g_mem.level)
+	switch &state in g_mem.state {
+	case GS_InLevel:
+		if check_exit() {
+			break
+		}
+		update_player(&g_mem.player, &g_mem.level, dt)
+		update_light_zoom()
+		handle_input()
+		clear_d_light(g_mem.level.cells)
+		compute_d_light(g_mem.level)
+	case GS_LevelTransition:
+		if state.time_fade_in < 1 {
+			state.time_fade_in += dt
+			state.fade = state.time_fade_in
+		} else if !state.level_loaded {
+			g_mem.level_id = state.next_level
+			load_level(state.next_level)
+			state.level_loaded = true
+		} else if state.time_fade_out < 1 {
+			draw_in_level(g_mem.level, g_mem.player)
+			state.time_fade_out += dt
+			state.fade = 1 - state.time_fade_out
+		} else {
+			g_mem.state = init_gs_in_level()
+		}
+	case GS_Won:
+		if rl.IsKeyPressed(.ESCAPE) {
+			g_mem.state = init_gs_menu()
+		}
+	case GS_Menu:
+		if rl.IsKeyPressed(.SPACE) {
+			g_mem.state = init_gs_level_transition(0)
+		}
+	}
+}
+
+draw_ui :: proc(player: Player) {
+	w := rl.GetScreenWidth()
+	h := rl.GetScreenHeight()
+	rl.BeginMode2D(ui_camera())
+
+	if player.light > 0 {
+		font_size := i32(16)
+		light := player.light
+		fmt_str := "Holding Light: %.1f"
+		if light - 10 > 0 {
+			fmt_str = "Holding Light: %2f"
+		}
+		ctext := fmt.ctprintf(fmt_str, player.light)
+		text_len := rl.MeasureText(ctext, font_size)
+
+		rl.DrawText(ctext, (w / 2) - (text_len) - font_size, 10, font_size, rl.WHITE)
+	}
+
+	if player.fear > MAX_LIGHT - 1.5 {
+
+		font_size := i32(24)
+
+		ctext := fmt.ctprint(FEAR_TEXT[0])
+		text_len := rl.MeasureText(ctext, font_size)
+
+		rl.DrawText(
+			ctext,
+			(w / 4) - (text_len / 2),
+			(h / 2) - (font_size * 2),
+			font_size,
+			rl.WHITE,
+		)
+	}
+	rl.EndMode2D()
+}
+
+draw_in_level :: proc(level: Level, player: Player) {
+	rl.BeginMode2D(game_camera())
+	draw_level(level)
+	draw_player(player)
+	draw_ui(player)
+	rl.EndMode2D()
 }
 
 draw :: proc(dt: f32) {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLACK)
 
-	level := g_mem.level
-	player := g_mem.player
+	w := rl.GetScreenWidth()
+	h := rl.GetScreenHeight()
 
 	switch state in g_mem.state {
-	case GS_Won:
-		w := rl.GetScreenWidth() / 4
-		h := rl.GetScreenHeight() / 4
-		font_size := i32(36)
+	case GS_Menu:
+		rl.ClearBackground(rl.BLACK)
+		you_won_font_size := i32(36)
+		you_won := fmt.ctprintf("DARK PATHWAYS")
+		you_won_len := rl.MeasureText(you_won, you_won_font_size)
+		subtext_font_size := i32(24)
+		restart_text := fmt.ctprintf("PRESS [SPACE] TO START")
+		subtext_len := rl.MeasureText(restart_text, subtext_font_size)
 		rl.BeginMode2D(ui_camera())
 		rl.DrawText(
-			fmt.ctprintf("YOU WON"),
-			w - (font_size * 4 / 2),
-			h - font_size / 2,
-			font_size,
+			you_won,
+			w / 4 - you_won_len / 2,
+			h / 4 - you_won_font_size / 2,
+			you_won_font_size,
+			rl.WHITE,
+		)
+		rl.DrawText(
+			restart_text,
+			w / 4 - subtext_len / 2,
+			h / 4 + subtext_font_size / 2,
+			subtext_font_size,
 			rl.WHITE,
 		)
 		rl.EndMode2D()
-		break
-	case GS_Playing:
-		rl.BeginMode2D(game_camera())
-		draw_level(level)
-		draw_player(player)
+
+	case GS_Won:
+		rl.ClearBackground(rl.BLACK)
+		you_won_font_size := i32(36)
+		you_won := fmt.ctprintf("YOU WON")
+		you_won_len := rl.MeasureText(you_won, you_won_font_size)
+		subtext_font_size := i32(24)
+		subtext := fmt.ctprintf("PRESS [ESC] FOR MENU")
+		subtext_len := rl.MeasureText(subtext, subtext_font_size)
+		rl.BeginMode2D(ui_camera())
+		rl.DrawText(
+			you_won,
+			w / 4 - you_won_len / 2,
+			h / 4 - you_won_font_size / 2,
+			you_won_font_size,
+			rl.WHITE,
+		)
+		rl.DrawText(
+			subtext,
+			w / 4 - subtext_len / 2,
+			h / 4 + subtext_font_size / 2,
+			subtext_font_size,
+			rl.WHITE,
+		)
 		rl.EndMode2D()
-	case GS_Menu:
-		break
+	case GS_LevelTransition:
+		rl.DrawRectangle(0, 0, w, h, rl.Color{0, 0, 0, u8(state.fade * f32(255))})
+	case GS_InLevel:
+		rl.ClearBackground(rl.BLACK)
+		level := g_mem.level
+		player := g_mem.player
+		draw_in_level(level, player)
 	}
 
 	if g_mem.debug.active {
+		level := g_mem.level
+		player := g_mem.player
 		mouse_world := rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera())
 		hovered_cell_pos := Vec2i{int(mouse_world.x / CELL_SIZE), int(mouse_world.y / CELL_SIZE)}
 
@@ -250,7 +396,7 @@ draw :: proc(dt: f32) {
 		rl.BeginMode2D(game_camera())
 		for c in level.cells {
 			shown := true
-			dbg_light: int
+			dbg_light: f32
 			switch g_mem.debug.debug_light {
 			case .None:
 				shown = false
@@ -268,7 +414,7 @@ draw :: proc(dt: f32) {
 
 			if shown {
 				rl.DrawText(
-					fmt.ctprintf("{}", dbg_light),
+					fmt.ctprintf("%.1f", dbg_light),
 					(x * CELL_SIZE + CELL_SIZE / 2) - 3,
 					(y * CELL_SIZE + CELL_SIZE / 2) - 4,
 					4,
@@ -282,8 +428,11 @@ draw :: proc(dt: f32) {
 		rl.DrawText(
 			fmt.ctprintf(
 				"current_level: %v\n" +
+				"state: %v\n" +
 				"player_pos: %v\n" +
 				"player_light: %v\n" +
+				"player_fear: %v\n" +
+				"player_torch_on: %v\n" +
 				"light_mode: %v\n" +
 				"cell_id: %v\n" +
 				"cell_pos: %v\n" +
@@ -292,8 +441,11 @@ draw :: proc(dt: f32) {
 				"cell_type: %v\n" +
 				"cell_walkable: %v\n",
 				g_mem.level_id + 1,
+				g_mem.state,
 				player.pos,
 				player.light,
+				player.fear,
+				player.torch_on,
 				g_mem.debug.debug_light,
 				hovered_cell.id,
 				hovered_cell.pos,
@@ -334,11 +486,9 @@ game_init :: proc() {
 	g_mem = new(Game_Memory)
 
 	g_mem^ = Game_Memory {
-		state = GS_Playing{current_zoom = 1, target_zoom = 1, zoom_speed = 2},
+		state = init_gs_menu(),
 		player = Player{id = new_id()},
 	}
-
-	load_level(1)
 
 	game_hot_reloaded(g_mem)
 }
