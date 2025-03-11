@@ -17,7 +17,7 @@ also used in order to facilitate the hot reload functionality:
 
 - game_memory: Run just before a hot reload. That way game_hot_reload.exe has a
       pointer to the game's memory that it can hand to the new game DLL.
-- game_hot_reloaded: Run after a hot reload so that the `g_mem` global
+- game_hot_reloaded: Run after a hot reload so that the `gm` global
       variable can be set to whatever pointer it was in the old DLL.
 
 NOTE: When compiled as part of `build_release`, `build_debug` or `build_web`
@@ -31,54 +31,6 @@ import "core:fmt"
 import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 360
-
-GS_Menu :: struct {}
-
-Progress :: enum {
-	BEGIN,
-	NEW_LEVEL,
-	HAS_TORCH,
-}
-GS_InLevel :: struct {
-	current_zoom: f32,
-	target_zoom:  f32,
-	zoom_speed:   f32,
-	progress:     Progress,
-}
-
-GS_LevelTransition :: struct {
-	time_fade_out: f32,
-	time_fade_in:  f32,
-	fade:          f32,
-	level_loaded:  bool,
-	next_level:    int,
-}
-
-GS_Won :: struct {}
-
-GameState :: union {
-	GS_Menu,
-	GS_InLevel,
-	GS_LevelTransition,
-	GS_Won,
-}
-
-init_gs_in_level :: proc() -> GS_InLevel {
-	return GS_InLevel{current_zoom = 1, target_zoom = 1, zoom_speed = 2}
-}
-
-init_gs_menu :: proc() -> GS_Menu {
-	return GS_Menu{}
-}
-
-init_gs_level_transition :: proc(next_level: int) -> GS_LevelTransition {
-	return GS_LevelTransition {
-		time_fade_in = 0,
-		time_fade_out = 0,
-		level_loaded = false,
-		next_level = next_level,
-	}
-}
 
 LEVEL_AMOUNT :: 2
 
@@ -101,7 +53,7 @@ Game_Memory :: struct {
 	debug:    DebugInfo,
 }
 
-g_mem: ^Game_Memory
+gm: ^Game_Memory
 
 game_camera :: proc() -> rl.Camera2D {
 	w := f32(rl.GetScreenWidth())
@@ -109,11 +61,11 @@ game_camera :: proc() -> rl.Camera2D {
 
 	zoom := f32(1)
 
-	if state, ok := &g_mem.state.(GS_InLevel); ok {
+	if state, ok := &gm.state.gs.(GS_Level); ok {
 		zoom = state.current_zoom
 	}
 
-	return {zoom = zoom, target = g_mem.player.screen_pos, offset = {w / 2, h / 2}}
+	return {zoom = zoom, target = gm.player.screen_pos, offset = {w / 2, h / 2}}
 }
 
 ui_camera :: proc() -> rl.Camera2D {
@@ -121,14 +73,14 @@ ui_camera :: proc() -> rl.Camera2D {
 }
 
 load_level :: proc(level_num: int) {
-	destroy_level(&g_mem.level)
+	destroy_level(&gm.level)
 	level_string := fmt.aprintf("assets/level%2d.png", level_num)
-	g_mem.level, _ = load_level_png(level_string)
-	g_mem.level_id = level_num
+	gm.level, _ = load_level_png(level_string)
+	gm.level_id = level_num
 
-	player_pos := g_mem.level.player_start_pos
+	player_pos := gm.level.player_start_pos
 
-	player := &g_mem.player
+	player := &gm.player
 
 	player.pos = player_pos
 	player.target_pos = player_pos
@@ -137,252 +89,26 @@ load_level :: proc(level_num: int) {
 	player.light = 0
 }
 
-check_exit :: proc() -> bool {
-	player_pos := g_mem.player.pos
-	current_level := g_mem.level
-
-	current_level_id := g_mem.level_id
-
-	if player_pos == current_level.exit_pos {
-		if current_level_id <= LEVEL_AMOUNT - 1 {
-			g_mem.state = init_gs_level_transition(g_mem.level_id + 1)
-		} else {
-			g_mem.state = GS_Won{}
-		}
-		return true
-	}
-
-	return false
-}
-
-handle_input :: proc() {
-	if (rl.IsKeyPressed(.ONE)) {
-		g_mem.debug.active = !g_mem.debug.active
-	}
-
-	if (rl.IsKeyPressed(.TWO)) {
-		debug_light := g_mem.debug.debug_light
-
-		switch debug_light {
-		case .None:
-			debug_light = .Static
-		case .Static:
-			debug_light = .Dynamic
-		case .Dynamic:
-			debug_light = .Both
-		case .Both:
-			debug_light = .None
-		}
-
-		g_mem.debug.debug_light = debug_light
-	}
-
-	if (rl.IsKeyPressed(.FOUR)) {
-		load_level(g_mem.level_id)
-	}
-	if (rl.IsKeyPressed(.FIVE)) {
-		next := g_mem.level_id + 1
-		if next > LEVEL_AMOUNT {
-			next = 1
-		}
-		g_mem.level_id = next
-		load_level(g_mem.level_id)
-	}
-}
-
-update_light_zoom :: proc() {
-	level := g_mem.level
-	player := g_mem.player
-	id := player.pos.y * level.width + player.pos.x
-	current_cell := level.cells[id]
-	dt := rl.GetFrameTime()
-
-	if state, ok := &g_mem.state.(GS_InLevel); ok {
-		light := max(
-			current_cell.d_light,
-			current_cell.s_light,
-			(player.torch_on ? player.light : 0),
-		)
-
-		target_zoom := f32(1)
-
-		switch light {
-		case 0:
-			target_zoom = 5
-		case 1 ..< 2:
-			target_zoom = 4
-		case 2 ..< 6:
-			target_zoom = 3
-		case 6 ..< 10:
-			target_zoom = 2
-		case 10 ..< 16:
-			target_zoom = 1
-		}
-
-		state.target_zoom = target_zoom
-		if abs(state.target_zoom - state.current_zoom) > 0.1 {
-			state.current_zoom = rl.Lerp(
-				state.current_zoom,
-				state.target_zoom,
-				dt * state.zoom_speed,
-			)
-		} else {
-			state.current_zoom = state.target_zoom
-		}
-	}
-
-
-}
 
 update :: proc(dt: f32) {
-	switch &state in g_mem.state {
-	case GS_InLevel:
-		if check_exit() {
-			break
-		}
-		update_player(&g_mem.player, &g_mem.level, dt)
-		update_light_zoom()
-		handle_input()
-		clear_d_light(g_mem.level.cells)
-		compute_d_light(g_mem.level)
-	case GS_LevelTransition:
-		if state.time_fade_in < 1 {
-			state.time_fade_in += dt
-			state.fade = state.time_fade_in
-		} else if !state.level_loaded {
-			g_mem.level_id = state.next_level
-			load_level(state.next_level)
-			state.level_loaded = true
-		} else if state.time_fade_out < 1 {
-			draw_in_level(g_mem.level, g_mem.player)
-			state.time_fade_out += dt
-			state.fade = 1 - state.time_fade_out
-		} else {
-			g_mem.state = init_gs_in_level()
-		}
-	case GS_Won:
-		if rl.IsKeyPressed(.ESCAPE) {
-			g_mem.state = init_gs_menu()
-		}
-	case GS_Menu:
-		if rl.IsKeyPressed(.SPACE) {
-			g_mem.state = init_gs_level_transition(0)
-		}
-	}
+	// if gm.state.should_transition {
+	// 	fmt.printfln("{}", "should transition")
+	// 	update_transition(dt)
+	// 	draw_transition(gm.state.transition.fade)
+	// } else {
+	gm.state.update(dt)
+	// }
 }
 
-draw_ui :: proc(player: Player) {
-	w := rl.GetScreenWidth()
-	h := rl.GetScreenHeight()
-	rl.BeginMode2D(ui_camera())
-
-	if player.light > 0 {
-		font_size := i32(16)
-		light := player.light
-		fmt_str := "Holding Light: %.1f"
-		if light - 10 > 0 {
-			fmt_str = "Holding Light: %2f"
-		}
-		ctext := fmt.ctprintf(fmt_str, player.light)
-		text_len := rl.MeasureText(ctext, font_size)
-
-		rl.DrawText(ctext, (w / 2) - (text_len) - font_size, 10, font_size, rl.WHITE)
-	}
-
-	if player.fear > MAX_LIGHT - 1.5 {
-
-		font_size := i32(24)
-
-		ctext := fmt.ctprint(FEAR_TEXT[0])
-		text_len := rl.MeasureText(ctext, font_size)
-
-		rl.DrawText(
-			ctext,
-			(w / 4) - (text_len / 2),
-			(h / 2) - (font_size * 2),
-			font_size,
-			rl.WHITE,
-		)
-	}
-	rl.EndMode2D()
-}
-
-draw_in_level :: proc(level: Level, player: Player) {
-	rl.BeginMode2D(game_camera())
-	draw_level(level)
-	draw_player(player)
-	draw_ui(player)
-	rl.EndMode2D()
-}
 
 draw :: proc(dt: f32) {
 	rl.BeginDrawing()
 
-	w := rl.GetScreenWidth()
-	h := rl.GetScreenHeight()
+	gm.state.draw(dt)
 
-	switch state in g_mem.state {
-	case GS_Menu:
-		rl.ClearBackground(rl.BLACK)
-		you_won_font_size := i32(36)
-		you_won := fmt.ctprintf("DARK PATHWAYS")
-		you_won_len := rl.MeasureText(you_won, you_won_font_size)
-		subtext_font_size := i32(24)
-		restart_text := fmt.ctprintf("PRESS [SPACE] TO START")
-		subtext_len := rl.MeasureText(restart_text, subtext_font_size)
-		rl.BeginMode2D(ui_camera())
-		rl.DrawText(
-			you_won,
-			w / 4 - you_won_len / 2,
-			h / 4 - you_won_font_size / 2,
-			you_won_font_size,
-			rl.WHITE,
-		)
-		rl.DrawText(
-			restart_text,
-			w / 4 - subtext_len / 2,
-			h / 4 + subtext_font_size / 2,
-			subtext_font_size,
-			rl.WHITE,
-		)
-		rl.EndMode2D()
-
-	case GS_Won:
-		rl.ClearBackground(rl.BLACK)
-		you_won_font_size := i32(36)
-		you_won := fmt.ctprintf("YOU WON")
-		you_won_len := rl.MeasureText(you_won, you_won_font_size)
-		subtext_font_size := i32(24)
-		subtext := fmt.ctprintf("PRESS [ESC] FOR MENU")
-		subtext_len := rl.MeasureText(subtext, subtext_font_size)
-		rl.BeginMode2D(ui_camera())
-		rl.DrawText(
-			you_won,
-			w / 4 - you_won_len / 2,
-			h / 4 - you_won_font_size / 2,
-			you_won_font_size,
-			rl.WHITE,
-		)
-		rl.DrawText(
-			subtext,
-			w / 4 - subtext_len / 2,
-			h / 4 + subtext_font_size / 2,
-			subtext_font_size,
-			rl.WHITE,
-		)
-		rl.EndMode2D()
-	case GS_LevelTransition:
-		rl.DrawRectangle(0, 0, w, h, rl.Color{0, 0, 0, u8(state.fade * f32(255))})
-	case GS_InLevel:
-		rl.ClearBackground(rl.BLACK)
-		level := g_mem.level
-		player := g_mem.player
-		draw_in_level(level, player)
-	}
-
-	if g_mem.debug.active {
-		level := g_mem.level
-		player := g_mem.player
+	if gm.debug.active {
+		level := gm.level
+		player := gm.player
 		mouse_world := rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera())
 		hovered_cell_pos := Vec2i{int(mouse_world.x / CELL_SIZE), int(mouse_world.y / CELL_SIZE)}
 
@@ -397,7 +123,7 @@ draw :: proc(dt: f32) {
 		for c in level.cells {
 			shown := true
 			dbg_light: f32
-			switch g_mem.debug.debug_light {
+			switch gm.debug.debug_light {
 			case .None:
 				shown = false
 				continue
@@ -440,13 +166,13 @@ draw :: proc(dt: f32) {
 				"cell_d_light: %v\n" +
 				"cell_type: %v\n" +
 				"cell_walkable: %v\n",
-				g_mem.level_id + 1,
-				g_mem.state,
+				gm.level_id + 1,
+				gm.state,
 				player.pos,
 				player.light,
 				player.fear,
 				player.torch_on,
-				g_mem.debug.debug_light,
+				gm.debug.debug_light,
 				hovered_cell.id,
 				hovered_cell.pos,
 				hovered_cell.s_light,
@@ -483,14 +209,14 @@ game_init_window :: proc() {
 
 @(export)
 game_init :: proc() {
-	g_mem = new(Game_Memory)
+	gm = new(Game_Memory)
 
-	g_mem^ = Game_Memory {
+	gm^ = Game_Memory {
 		state = init_gs_menu(),
 		player = Player{id = new_id()},
 	}
 
-	game_hot_reloaded(g_mem)
+	game_hot_reloaded(gm)
 }
 
 @(export)
@@ -507,8 +233,8 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	destroy_level(&g_mem.level)
-	free(g_mem)
+	destroy_level(&gm.level)
+	free(gm)
 }
 
 @(export)
@@ -518,7 +244,7 @@ game_shutdown_window :: proc() {
 
 @(export)
 game_memory :: proc() -> rawptr {
-	return g_mem
+	return gm
 }
 
 @(export)
@@ -528,11 +254,11 @@ game_memory_size :: proc() -> int {
 
 @(export)
 game_hot_reloaded :: proc(mem: rawptr) {
-	g_mem = (^Game_Memory)(mem)
+	gm = (^Game_Memory)(mem)
 
 	// Here you can also set your own global variables. A good idea is to make
 	// your global variables into pointers that point to something inside
-	// `g_mem`.
+	// `gm`.
 }
 
 @(export)
