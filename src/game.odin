@@ -46,11 +46,10 @@ DebugInfo :: struct {
 }
 
 Game_Memory :: struct {
-	level:    Level,
-	level_id: int,
-	player:   Player,
-	state:    GameState,
-	debug:    DebugInfo,
+	level:  Level,
+	player: Player,
+	state:  GameState,
+	debug:  DebugInfo,
 }
 
 gm: ^Game_Memory
@@ -74,9 +73,8 @@ ui_camera :: proc() -> rl.Camera2D {
 
 load_level :: proc(level_num: int) {
 	destroy_level(&gm.level)
-	level_string := fmt.aprintf("assets/level%2d.png", level_num)
+	level_string := fmt.tprintf("assets/level%2d.png", level_num)
 	gm.level, _ = load_level_png(level_string)
-	gm.level_id = level_num
 
 	player_pos := gm.level.player_start_pos
 
@@ -153,7 +151,6 @@ draw :: proc(dt: f32) {
 		rl.BeginMode2D(ui_camera())
 		rl.DrawText(
 			fmt.ctprintf(
-				"current_level: %v\n" +
 				"state: %v\n" +
 				"player_pos: %v\n" +
 				"player_light: %v\n" +
@@ -166,7 +163,6 @@ draw :: proc(dt: f32) {
 				"cell_d_light: %v\n" +
 				"cell_type: %v\n" +
 				"cell_walkable: %v\n",
-				gm.level_id + 1,
 				gm.state,
 				player.pos,
 				player.light,

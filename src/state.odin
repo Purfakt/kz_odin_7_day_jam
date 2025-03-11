@@ -143,14 +143,13 @@ check_exit :: proc() -> bool {
 	current_level := gm.level
 
 	fmt.printfln("{} {}", gm.player.pos, current_level)
-
-	current_level_id := gm.level_id
+	level_state := gm.state.gs.(GS_Level)
+	current_level_id := level_state.level_id
 
 	if player_pos == current_level.exit_pos {
 		if current_level_id <= LEVEL_AMOUNT - 1 {
-			progress := gm.state.gs.(GS_Level).progress
 			// next_level := init_gs_level(current_level_id, progress)
-			gm.state = init_gs_level(current_level_id, progress)
+			gm.state = init_gs_level(current_level_id + 1, level_state.progress)
 			// gm.state.should_transition = true
 		} else {
 			// next_state := init_gs_won()
@@ -186,15 +185,15 @@ handle_input :: proc() {
 	}
 
 	if (rl.IsKeyPressed(.FOUR)) {
-		load_level(gm.level_id)
+		load_level(gm.state.gs.(GS_Level).level_id)
 	}
 	if (rl.IsKeyPressed(.FIVE)) {
-		next := gm.level_id + 1
+		level := gm.state.gs.(GS_Level)
+		next := level.level_id + 1
 		if next > LEVEL_AMOUNT {
 			next = 1
 		}
-		gm.level_id = next
-		load_level(gm.level_id)
+		gm.state = init_gs_level(next, .BEGIN)
 	}
 }
 
