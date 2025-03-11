@@ -79,10 +79,11 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	defer delete(image_data)
 
 	image := rl.LoadImageFromMemory(".png", rawptr(&image_data[0]), i32(len(image_data)))
+	defer rl.UnloadImage(image)
 
 	width := int(image.width)
 	height := int(image.height)
-	tiles := make([dynamic]Cell, width * height)
+	cells := make([dynamic]Cell, width * height)
 
 	player_pos: Vec2i
 	exit_pos: Vec2i
@@ -118,11 +119,12 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				cell_type = CellFloor{}
 				walkable = true
 			case COL_ITEM_TORCH:
-				d_light = 5
+				cell_type = CellFloor{}
+				walkable = true
+				d_light = 10
 				item := Item{{new_id(), pos}, .Torch, d_light, COL_ITEM_TORCH, true}
 				d_light_sources[item.id] = {item.pos, item.light}
 				items[pos] = item
-				walkable = true
 				break
 			case COL_EXIT:
 				cell_type = CellExit{}
@@ -131,33 +133,45 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			case COL_PLAYER:
 				cell_type = CellFloor{}
+				walkable = true
 				player_pos = {x, y}
 				break
 			}
 
-			tiles[(y * width) + x] = Cell{{new_id(), pos}, s_light, d_light, walkable, cell_type}
+			cells[(y * width) + x] = Cell{{new_id(), pos}, s_light, d_light, walkable, cell_type}
 		}
 	}
 
-	compute_s_light(tiles, s_light_sources, {width, height})
+	compute_s_light(cells, s_light_sources, {width, height})
 
-	level = {tiles, items, player_pos, exit_pos, width, height, d_light_sources}
+	level = {cells, items, player_pos, exit_pos, width, height, d_light_sources}
 	return
 }
 
-compute_s_light :: proc(tiles: [dynamic]Cell, light_sources: map[Id]LightSource, bounds: Vec2i) {
+clear_d_light :: proc(cells: [dynamic]Cell) {
+	for &c in cells {
+		c.d_light = 0
+	}
+}
+
+destroy_level :: proc(level: ^Level) {
+	delete(level.items)
+	delete(level.d_light_sources)
+	delete(level.cells)
+}
+
+compute_s_light :: proc(cells: [dynamic]Cell, light_sources: map[Id]LightSource, bounds: Vec2i) {
 	for _, source in light_sources {
-		lit_cells := get_cells_in_radius(tiles, bounds.x, bounds.y, source.pos, source.strength)
+		lit_cells := get_cells_in_radius(cells, bounds.x, bounds.y, source.pos, source.strength)
 		defer delete(lit_cells)
 
 		for idx_to_distance in lit_cells {
 			idx := idx_to_distance[0]
 			distance := idx_to_distance[1]
-			tile := tiles[idx]
+			cell := cells[idx]
 
-			lightm := max(tile.s_light, source.strength - distance)
-			fmt.printfln("{}, {}, {}", idx, tile.pos, lightm)
-			tiles[idx].s_light = lightm
+			lightm := max(cell.s_light, source.strength - distance)
+			cells[idx].s_light = lightm
 		}
 	}
 }
@@ -178,15 +192,14 @@ compute_d_light :: proc(level: Level) {
 			distance := idx_to_distance[1]
 			cell := level.cells[idx]
 
-			lightm := max(cell.s_light, source.strength - distance)
-			fmt.printfln("{}, {}, {}", idx, cell.pos, lightm)
+			lightm := max(cell.d_light, source.strength - distance)
 			level.cells[idx].d_light = lightm
 		}
 	}
 }
 
 get_cells_in_radius :: proc(
-	tiles: [dynamic]Cell,
+	cells: [dynamic]Cell,
 	width, height: int,
 	source: Vec2i,
 	radius: int,
@@ -240,7 +253,7 @@ get_cells_in_radius :: proc(
 			}
 			nidx := (ny * width) + nx
 
-			if _, is_wall := tiles[nidx].type.(CellWall); is_wall {
+			if _, is_wall := cells[nidx].type.(CellWall); is_wall {
 				if !visited[nidx] {
 					append(&result, [2]int{nidx, dist + 1})
 					visited[nidx] = true
@@ -287,31 +300,13 @@ draw_level :: proc(level: Level) {
 		light = min(light, MAX_LIGHT)
 
 		rl.DrawRectangle(x, y, CELL_SIZE, CELL_SIZE, get_dimmed_color(light, color))
+	}
 
-		if g_mem.debug.active {
-			shown := true
-			dbg_light := light
-			switch g_mem.debug.debug_light {
-			case .None:
-				shown = false
-			case .Dynamic:
-				dbg_light = c.d_light
-			case .Static:
-				dbg_light = c.s_light
-			case .Both:
-				dbg_light = light
-			}
-
-			if shown {
-				rl.DrawText(
-					fmt.caprintf("{}", dbg_light, allocator = context.temp_allocator),
-					(x + CELL_SIZE / 2) - 3,
-					(y + CELL_SIZE / 2) - 4,
-					4,
-					rl.WHITE,
-				)
-			}
-		}
+	for pos, item in level.items {
+		half := i32(CELL_SIZE / 2)
+		x := i32(pos.x * CELL_SIZE)
+		y := i32(pos.y * CELL_SIZE)
+		rl.DrawRectangle(x + half, y + half, half / 2, half / 2, item.color)
 	}
 }
 

@@ -33,7 +33,12 @@ import rl "vendor:raylib"
 PIXEL_WINDOW_HEIGHT :: 360
 
 GS_Menu :: struct {}
-GS_Playing :: struct {}
+GS_Playing :: struct {
+	current_zoom: f32,
+	target_zoom:  f32,
+	zoom_speed:   f32,
+}
+
 GS_Won :: struct {}
 
 GameState :: union {
@@ -69,11 +74,13 @@ game_camera :: proc() -> rl.Camera2D {
 	w := f32(rl.GetScreenWidth())
 	h := f32(rl.GetScreenHeight())
 
-	return {
-		zoom = h / PIXEL_WINDOW_HEIGHT,
-		target = g_mem.player.screen_pos,
-		offset = {w / 2, h / 2},
+	zoom := f32(1)
+
+	if state, ok := &g_mem.state.(GS_Playing); ok {
+		zoom = state.current_zoom
 	}
+
+	return {zoom = zoom, target = g_mem.player.screen_pos, offset = {w / 2, h / 2}}
 }
 
 ui_camera :: proc() -> rl.Camera2D {
@@ -81,6 +88,7 @@ ui_camera :: proc() -> rl.Camera2D {
 }
 
 load_level :: proc(level_num: int) {
+	destroy_level(&g_mem.level)
 	level_string := fmt.aprintf("assets/level%2d.png", level_num)
 	g_mem.level, _ = load_level_png(level_string)
 	g_mem.level_id = level_num
@@ -148,10 +156,52 @@ handle_input :: proc() {
 	}
 }
 
+update_light_zoom :: proc() {
+	level := g_mem.level
+	player := g_mem.player
+	id := player.pos.y * level.width + player.pos.x
+	current_cell := level.cells[id]
+	dt := rl.GetFrameTime()
+
+	if state, ok := &g_mem.state.(GS_Playing); ok {
+		light := max(current_cell.d_light, current_cell.s_light, player.light)
+
+		target_zoom := f32(1)
+
+		switch light {
+		case 0:
+			target_zoom = 5
+		case 1 ..< 2:
+			target_zoom = 4
+		case 2 ..< 6:
+			target_zoom = 3
+		case 6 ..< 10:
+			target_zoom = 2
+		case 10 ..< 16:
+			target_zoom = 1
+		}
+
+		state.target_zoom = target_zoom
+		if abs(state.target_zoom - state.current_zoom) > 0.1 {
+			state.current_zoom = rl.Lerp(
+				state.current_zoom,
+				state.target_zoom,
+				dt * state.zoom_speed,
+			)
+		} else {
+			state.current_zoom = state.target_zoom
+		}
+	}
+
+
+}
+
 update :: proc(dt: f32) {
 	check_exit()
 	move_player(&g_mem.player, &g_mem.level, dt)
+	update_light_zoom()
 	handle_input()
+	clear_d_light(g_mem.level.cells)
 	compute_d_light(g_mem.level)
 }
 
@@ -159,37 +209,105 @@ draw :: proc(dt: f32) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 
+	level := g_mem.level
+	player := g_mem.player
+
 	switch state in g_mem.state {
 	case GS_Won:
+		w := rl.GetScreenWidth() / 4
+		h := rl.GetScreenHeight() / 4
+		font_size := i32(36)
 		rl.BeginMode2D(ui_camera())
-		rl.DrawText(fmt.ctprintf("YOU WON"), 140, 90 - 4, 8, rl.WHITE)
-
+		rl.DrawText(
+			fmt.ctprintf("YOU WON"),
+			w - (font_size * 4 / 2),
+			h - font_size / 2,
+			font_size,
+			rl.WHITE,
+		)
 		rl.EndMode2D()
 		break
 	case GS_Playing:
 		rl.BeginMode2D(game_camera())
-		draw_level(g_mem.level)
-		draw_player(g_mem.player)
+		draw_level(level)
+		draw_player(player)
 		rl.EndMode2D()
 	case GS_Menu:
 		break
 	}
 
 	if g_mem.debug.active {
+		mouse_world := rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera())
+		hovered_cell_pos := Vec2i{int(mouse_world.x / CELL_SIZE), int(mouse_world.y / CELL_SIZE)}
+
+		hovered_cell_id := clamp(
+			(hovered_cell_pos.y * level.width + hovered_cell_pos.x),
+			0,
+			len(level.cells) - 1,
+		)
+		hovered_cell := level.cells[hovered_cell_id]
+
+		rl.BeginMode2D(game_camera())
+		for c in level.cells {
+			shown := true
+			dbg_light: int
+			switch g_mem.debug.debug_light {
+			case .None:
+				shown = false
+				continue
+			case .Dynamic:
+				dbg_light = c.d_light
+			case .Static:
+				dbg_light = c.s_light
+			case .Both:
+				dbg_light = max(c.d_light, c.s_light)
+			}
+
+			x := i32(c.pos.x)
+			y := i32(c.pos.y)
+
+			if shown {
+				rl.DrawText(
+					fmt.ctprintf("{}", dbg_light),
+					(x * CELL_SIZE + CELL_SIZE / 2) - 3,
+					(y * CELL_SIZE + CELL_SIZE / 2) - 4,
+					4,
+					rl.WHITE,
+				)
+			}
+		}
+		rl.EndMode2D()
+
 		rl.BeginMode2D(ui_camera())
 		rl.DrawText(
 			fmt.ctprintf(
-				"current_level: %v\nplayer_pos: %v\nplayer_light: %v,light_mode: %v",
+				"current_level: %v\n" +
+				"player_pos: %v\n" +
+				"player_light: %v\n" +
+				"light_mode: %v\n" +
+				"cell_id: %v\n" +
+				"cell_pos: %v\n" +
+				"cell_s_light: %v\n" +
+				"cell_d_light: %v\n" +
+				"cell_type: %v\n" +
+				"cell_walkable: %v\n",
 				g_mem.level_id + 1,
-				g_mem.player.pos,
-				g_mem.player.light,
+				player.pos,
+				player.light,
 				g_mem.debug.debug_light,
+				hovered_cell.id,
+				hovered_cell.pos,
+				hovered_cell.s_light,
+				hovered_cell.d_light,
+				hovered_cell.type,
+				hovered_cell.walkable,
 			),
 			5,
 			5,
 			8,
 			rl.WHITE,
 		)
+		rl.EndMode2D()
 	}
 
 	rl.EndDrawing()
@@ -216,7 +334,7 @@ game_init :: proc() {
 	g_mem = new(Game_Memory)
 
 	g_mem^ = Game_Memory {
-		state = GS_Playing{},
+		state = GS_Playing{current_zoom = 1, target_zoom = 1, zoom_speed = 2},
 		player = Player{id = new_id()},
 	}
 
@@ -239,6 +357,7 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	destroy_level(&g_mem.level)
 	free(g_mem)
 }
 
@@ -279,5 +398,5 @@ game_force_restart :: proc() -> bool {
 // In a web build, this is called when browser changes size. Remove the
 // `rl.SetWindowSize` call if you don't want a resizable game.
 game_parent_window_size_changed :: proc(w, h: int) {
-	rl.SetWindowSize(i32(w), i32(h))
+	// rl.SetWindowSize(i32(w), i32(h))
 }
