@@ -87,8 +87,48 @@ load_level :: proc(level_num: int) {
 	player.light = 0
 }
 
+handle_input :: proc() {
+	if (rl.IsKeyPressed(.ONE)) {
+		gm.debug.active = !gm.debug.active
+	}
+
+	gs := gm.state.gs
+	#partial switch state in gs {
+	case GS_Level:
+		if (rl.IsKeyPressed(.TWO)) {
+			debug_light := gm.debug.debug_light
+
+			switch debug_light {
+			case .None:
+				debug_light = .Static
+			case .Static:
+				debug_light = .Dynamic
+			case .Dynamic:
+				debug_light = .Both
+			case .Both:
+				debug_light = .None
+			}
+
+			gm.debug.debug_light = debug_light
+		}
+
+		if (rl.IsKeyPressed(.FOUR)) {
+			load_level(gm.state.gs.(GS_Level).level_id)
+		}
+		if (rl.IsKeyPressed(.FIVE)) {
+			level := gm.state.gs.(GS_Level)
+			next := level.level_id + 1
+			if next > LEVEL_AMOUNT {
+				next = 1
+			}
+			gm.state = init_gs_level(next, level.progress)
+		}
+	}
+}
+
 
 update :: proc(dt: f32) {
+	handle_input()
 	if gm.state.in_transition {
 		update_transition(dt)
 		return
@@ -101,8 +141,21 @@ draw :: proc(dt: f32) {
 	rl.BeginDrawing()
 
 	gm.state.draw(dt)
+	if gm.state.in_transition {draw_transition(gm.state.transition.fade)}
+	if gm.debug.active {draw_debug()}
 
-	if _, in_level := gm.state.gs.(GS_Level); in_level && gm.debug.active {
+	rl.EndDrawing()
+}
+
+draw_debug :: proc() {
+	gs := gm.state.gs
+
+	switch state in gs {
+	case GS_Menu:
+		rl.BeginMode2D(ui_camera())
+		rl.DrawText(fmt.ctprintf("state: %v", gm.state), 5, 5, 8, rl.WHITE)
+		rl.EndMode2D()
+	case GS_Level:
 		level := gm.level
 		player := gm.player
 		mouse_world := rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera())
@@ -180,14 +233,12 @@ draw :: proc(dt: f32) {
 			rl.WHITE,
 		)
 		rl.EndMode2D()
+	case GS_Won:
+		rl.BeginMode2D(ui_camera())
+		rl.DrawText(fmt.ctprintf("state: %v", gm.state), 5, 5, 8, rl.WHITE)
+		rl.EndMode2D()
 	}
 
-
-	if gm.state.in_transition {
-		draw_transition(gm.state.transition.fade)
-	}
-
-	rl.EndDrawing()
 }
 
 @(export)

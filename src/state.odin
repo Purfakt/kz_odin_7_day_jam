@@ -152,41 +152,6 @@ check_exit :: proc() -> bool {
 	return false
 }
 
-handle_input :: proc() {
-	if (rl.IsKeyPressed(.ONE)) {
-		gm.debug.active = !gm.debug.active
-	}
-
-	if (rl.IsKeyPressed(.TWO)) {
-		debug_light := gm.debug.debug_light
-
-		switch debug_light {
-		case .None:
-			debug_light = .Static
-		case .Static:
-			debug_light = .Dynamic
-		case .Dynamic:
-			debug_light = .Both
-		case .Both:
-			debug_light = .None
-		}
-
-		gm.debug.debug_light = debug_light
-	}
-
-	if (rl.IsKeyPressed(.FOUR)) {
-		load_level(gm.state.gs.(GS_Level).level_id)
-	}
-	if (rl.IsKeyPressed(.FIVE)) {
-		level := gm.state.gs.(GS_Level)
-		next := level.level_id + 1
-		if next > LEVEL_AMOUNT {
-			next = 1
-		}
-		gm.state = init_gs_level(next, level.progress)
-	}
-}
-
 update_light_zoom :: proc() {
 	level := gm.level
 	player := gm.player
@@ -237,7 +202,6 @@ update_gs_level :: proc(dt: f32) {
 		return
 	}
 	update_player(&gm.player, &gm.level, dt)
-	handle_input()
 }
 
 draw_ui :: proc(player: Player) {
