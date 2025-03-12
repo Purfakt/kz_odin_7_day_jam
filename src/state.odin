@@ -21,7 +21,7 @@ GS :: union {
 //  TRANSITION
 // ------------
 
-TRANSITION_TIME :: 0.01
+TRANSITION_TIME :: 1
 
 Transition :: struct {
 	time_fade_out:   f32,
