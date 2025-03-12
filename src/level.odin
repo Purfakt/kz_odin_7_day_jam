@@ -284,7 +284,6 @@ draw_level :: proc(level: Level) {
 			color = COL_WALL
 		}
 
-
 		light := max(d_light, s_light)
 		light = min(light, MAX_LIGHT)
 
@@ -292,10 +291,11 @@ draw_level :: proc(level: Level) {
 	}
 
 	for pos, item in level.items {
-		half := i32(CELL_SIZE / 2)
 		x := i32(pos.x * CELL_SIZE)
 		y := i32(pos.y * CELL_SIZE)
-		rl.DrawRectangle(x + half, y + half, half / 2, half / 2, item.color)
+		item_size := i32(CELL_SIZE / 2)
+		margin := (CELL_SIZE - item_size) / 2
+		rl.DrawRectangle(x + margin, y + margin, item_size, item_size, item.color)
 	}
 }
 
