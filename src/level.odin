@@ -235,18 +235,7 @@ get_cells_in_radius :: proc(
 			continue
 		}
 
-		cardinal_points := [8][2]int {
-			{-1, 1},
-			{0, 1},
-			{1, 1},
-			{-1, 0},
-			{1, 0},
-			{-1, -1},
-			{0, -1},
-			{1, -1},
-		}
-
-		for off in cardinal_points {
+		for off in CARDINAL_POINTS {
 			nx, ny := x + off[0], y + off[1]
 			if nx < 0 || nx >= width || ny < 0 || ny >= height {
 				continue

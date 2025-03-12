@@ -6,13 +6,14 @@ import rl "vendor:raylib"
 FEAR_TEXT := [?]string{"It's too dark in there", "I can't see anything", "Better take a step back"}
 
 Player :: struct {
-	using entity: Entity,
-	screen_pos:   rl.Vector2,
-	target_pos:   Vec2i,
-	can_move:     bool,
-	light:        f32,
-	torch_on:     bool,
-	fear:         f32,
+	using entity:      Entity,
+	screen_pos:        rl.Vector2,
+	target_pos:        Vec2i,
+	target_cell:       ^Cell,
+	surrounding_cells: [8]Cell,
+	can_move:          bool,
+	light:             f32,
+	torch_on:          bool,
 }
 
 handle_movement_input :: proc(current_pos: Vec2i) -> Vec2i {
@@ -37,6 +38,11 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 	speed: f32 = 25
 	light_per_step: f32 = 0.2
 
+	for cp, i in CARDINAL_POINTS {
+		index := (player.pos.y + cp.y) * gm.level.width + (player.pos.x + cp.x)
+		player.surrounding_cells[i] = gm.level.cells[index]
+	}
+
 	if rl.IsKeyDown(.LEFT_SHIFT) {
 		speed = 50
 	}
@@ -49,7 +55,12 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 	screen_pos := &player.screen_pos
 	can_move := &player.can_move
 
+	gs := gm.state.gs.(GS_Level)
+
 	if player.torch_on && player.light != 0 {
+		if gs.progress == .GOT_TORCH {
+			gs.progress = .LIT_TORCH
+		}
 		level.d_light_sources[player.id] = LightSource{player.target_pos, player.light}
 	} else if _, has_player_source := level.d_light_sources[player.id]; has_player_source {
 		delete_key(&level.d_light_sources, player.id)
@@ -65,17 +76,20 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 		grid_size := (level.width * level.height) - 1
 		idx := clamp((new_target.y * level.width) + new_target.x, 0, grid_size)
 		cell := &level.cells[idx]
+		player.target_cell = cell
 
 		cell_light := max(cell.d_light, cell.s_light)
-		player.fear = MAX_LIGHT - cell_light
 
-		if player.fear < MAX_LIGHT - 0.5 && cell.walkable {
+		if ((player.light > 0 && player.torch_on) || cell_light > 0) && cell.walkable {
 			target_pos^ = new_target
 
 			if player.torch_on {
-				player.light -= player.light == 0 ? 0 : light_per_step
+				player.light -= player.light <= 0 ? 0 : light_per_step
 			}
 			if item, has_item := level.items[new_target]; has_item && item.pickable {
+				if gs, is_level := &gm.state.gs.(GS_Level); is_level && gs.progress == .BEGIN {
+					gs.progress = .GOT_TORCH
+				}
 				player.light += item.light
 				delete_key(&level.items, new_target)
 				if _, has_source := level.d_light_sources[item.id]; has_source {

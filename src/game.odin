@@ -32,7 +32,9 @@ import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 360
 
-LEVEL_AMOUNT :: 2
+LEVEL_AMOUNT :: 3
+
+CARDINAL_POINTS :: [8][2]int{{-1, 1}, {0, 1}, {1, 1}, {-1, 0}, {1, 0}, {-1, -1}, {0, -1}, {1, -1}}
 
 DebugLight :: enum {
 	None,
@@ -75,16 +77,23 @@ load_level :: proc(level_num: int) {
 	destroy_level(&gm.level)
 	level_string := fmt.tprintf("assets/level%2d.png", level_num)
 	gm.level, _ = load_level_png(level_string)
-
 	player_pos := gm.level.player_start_pos
 
 	player := &gm.player
 
 	player.pos = player_pos
 	player.target_pos = player_pos
+	player.target_cell = &gm.level.cells[player_pos.y * gm.level.width + player_pos.x]
 	player.screen_pos = {f32(player_pos.x * CELL_SIZE), f32(player_pos.y * CELL_SIZE)}
+
+	for cp, i in CARDINAL_POINTS {
+		index := (player.pos.y + cp.y) * gm.level.width + (player.pos.x + cp.x)
+		player.surrounding_cells[i] = gm.level.cells[index]
+	}
+
 	player.can_move = true
 	player.light = 0
+	player.torch_on = false
 }
 
 handle_input :: proc() {
@@ -113,15 +122,14 @@ handle_input :: proc() {
 		}
 
 		if (rl.IsKeyPressed(.FOUR)) {
-			load_level(gm.state.gs.(GS_Level).level_id)
+			load_level(state.level_id)
 		}
 		if (rl.IsKeyPressed(.FIVE)) {
-			level := gm.state.gs.(GS_Level)
-			next := level.level_id + 1
+			next := state.level_id + 1
 			if next > LEVEL_AMOUNT {
 				next = 1
 			}
-			gm.state = init_gs_level(next, level.progress)
+			gm.state = init_gs_level(next, state.progress)
 		}
 	}
 }
@@ -205,7 +213,6 @@ draw_debug :: proc() {
 				"state: %v\n" +
 				"player_pos: %v\n" +
 				"player_light: %v\n" +
-				"player_fear: %v\n" +
 				"player_torch_on: %v\n" +
 				"light_mode: %v\n" +
 				"cell_id: %v\n" +
@@ -217,7 +224,6 @@ draw_debug :: proc() {
 				gm.state,
 				player.pos,
 				player.light,
-				player.fear,
 				player.torch_on,
 				gm.debug.debug_light,
 				hovered_cell.id,

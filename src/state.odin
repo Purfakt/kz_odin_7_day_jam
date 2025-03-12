@@ -21,7 +21,7 @@ GS :: union {
 //  TRANSITION
 // ------------
 
-TRANSITION_TIME :: 1
+TRANSITION_TIME :: 0.01
 
 Transition :: struct {
 	time_fade_out:   f32,
@@ -121,8 +121,8 @@ draw_gs_menu :: proc(dt: f32) {
 
 Progress :: enum {
 	BEGIN,
-	NEW_LEVEL,
-	HAS_TORCH,
+	GOT_TORCH,
+	LIT_TORCH,
 }
 
 GS_Level :: struct {
@@ -169,9 +169,9 @@ update_light_zoom :: proc() {
 		target_zoom := f32(1)
 
 		switch light {
-		case 0:
+		case -100 ..< 0:
 			target_zoom = 5
-		case 1 ..< 2:
+		case 0 ..< 2:
 			target_zoom = 4
 		case 2 ..< 6:
 			target_zoom = 3
@@ -195,6 +195,9 @@ update_light_zoom :: proc() {
 }
 
 update_gs_level :: proc(dt: f32) {
+	if (rl.IsKeyPressed(.R)) {
+		load_level(gm.state.gs.(GS_Level).level_id)
+	}
 	clear_d_light(gm.level.cells)
 	compute_d_light(gm.level)
 	update_light_zoom()
@@ -212,9 +215,9 @@ draw_ui :: proc(player: Player) {
 	if player.light > 0 {
 		font_size := i32(16)
 		light := player.light
-		fmt_str := "Holding Light: %.1f"
+		fmt_str := "Light: %.1f"
 		if light - 10 > 0 {
-			fmt_str = "Holding Light: %2f"
+			fmt_str = "Light: %2f"
 		}
 		ctext := fmt.ctprintf(fmt_str, player.light)
 		text_len := rl.MeasureText(ctext, font_size)
@@ -222,21 +225,41 @@ draw_ui :: proc(player: Player) {
 		rl.DrawText(ctext, (w / 2) - (text_len) - font_size, 10, font_size, rl.WHITE)
 	}
 
-	if player.fear > MAX_LIGHT - 1.5 {
+	info_text: cstring
 
-		font_size := i32(24)
+	can_move: bool
 
-		ctext := fmt.ctprint(FEAR_TEXT[0])
-		text_len := rl.MeasureText(ctext, font_size)
-
-		rl.DrawText(
-			ctext,
-			(w / 4) - (text_len / 2),
-			(h / 2) - (font_size * 2),
-			font_size,
-			rl.WHITE,
-		)
+	for c in player.surrounding_cells {
+		if max(c.d_light, c.s_light) > 0 {
+			can_move = true
+			break
+		}
 	}
+
+
+	target_cell: ^Cell = player.target_cell
+
+	if !can_move && !player.torch_on && player.light > 0 {
+		info_text = fmt.ctprint("Press SPACE to light your torch")
+	} else if !can_move && player.light <= 0 {
+		info_text = fmt.ctprint("Press R to restart the level")
+	} else if target_cell != nil &&
+	   max(target_cell.d_light, target_cell.s_light) <= 0.01 &&
+	   !player.torch_on &&
+	   can_move {
+		info_text = fmt.ctprint(FEAR_TEXT[0])
+	}
+
+	font_size := i32(24)
+	text_len := rl.MeasureText(info_text, font_size)
+	rl.DrawText(
+		info_text,
+		(w / 4) - (text_len / 2),
+		(h / 2) - (font_size * 2),
+		font_size,
+		rl.WHITE,
+	)
+
 	rl.EndMode2D()
 }
 
