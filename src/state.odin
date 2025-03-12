@@ -4,11 +4,11 @@ import "core:fmt"
 import rl "vendor:raylib"
 
 GameState :: struct {
-	gs:     GS,
-	update: proc(dt: f32),
-	draw:   proc(dt: f32),
-	// should_transition: bool,
-	// transition:        Transition,
+	gs:            GS,
+	update:        proc(dt: f32),
+	draw:          proc(dt: f32),
+	in_transition: bool,
+	transition:    Transition,
 }
 
 GS :: union {
@@ -21,57 +21,54 @@ GS :: union {
 //  TRANSITION
 // ------------
 
+TRANSITION_TIME :: 1
+
 Transition :: struct {
-	time_fade_out: f32,
-	time_fade_in:  f32,
-	fade:          f32,
-	fade_in_done:  bool,
-	next_state:    ^GameState,
+	time_fade_out:   f32,
+	time_fade_in:    f32,
+	fade:            f32,
+	fade_in_done:    bool,
+	next_state_proc: proc() -> GameState,
 }
 
-// update_transition :: proc(dt: f32) {
-// 	transition := &gm.state.transition
-// 	if transition.time_fade_in < 1 {
-// 		transition.time_fade_in += dt
-// 		transition.fade = transition.time_fade_in
-// 	} else if !transition.fade_in_done {
-// 		switch gs in transition.next_state.gs {
-// 		case GS_Level:
-// 			progress := Progress.BEGIN
-// 			if previous_level, is_level := gm.state.gs.(GS_Level); is_level {
-// 				progress = previous_level.progress
-// 			}
-// 			gm.state = init_gs_level(gs.level_id, progress)
-// 			load_level(gs.level_id)
-// 		case GS_Menu:
-// 			gm.state = init_gs_menu()
-// 		case GS_Won:
-// 			gm.state = init_gs_won()
-// 		}
-// 		transition.fade_in_done = true
-// 	} else if transition.time_fade_out < 1 {
-// 		transition.time_fade_out += dt
-// 		transition.fade = 1 - transition.time_fade_out
-// 	} else {
-// 		gm.state.should_transition = false
-// 	}
-// }
-
-// draw_transition :: proc(fade: f32) {
-// 	w := rl.GetScreenWidth()
-// 	h := rl.GetScreenHeight()
-
-// 	rl.DrawRectangle(0, 0, w, h, rl.Color{0, 0, 0, u8(fade * f32(255))})
-// }
-
-
-init_gs_level_transition :: proc(next_state: ^GameState) -> Transition {
-	return Transition {
-		time_fade_in = 0,
-		time_fade_out = 0,
-		fade_in_done = false,
-		next_state = next_state,
+update_transition :: proc(dt: f32) {
+	transition := &gm.state.transition
+	if transition.time_fade_in < TRANSITION_TIME {
+		transition.time_fade_in += dt
+		transition.fade = transition.time_fade_in / TRANSITION_TIME
+	} else if !transition.fade_in_done {
+		transition.fade_in_done = true
+		new_game_state := transition.next_state_proc()
+		new_game_state.in_transition = true
+		new_game_state.transition = transition^
+		gm.state = new_game_state
+	} else if transition.time_fade_out < TRANSITION_TIME {
+		transition.time_fade_out += dt
+		transition.fade = 1 - (transition.time_fade_out / TRANSITION_TIME)
+	} else {
+		gm.state.in_transition = false
+		transition.time_fade_out = 0
+		transition.time_fade_in = 0
 	}
+}
+
+draw_transition :: proc(fade: f32) {
+	w := rl.GetScreenWidth()
+	h := rl.GetScreenHeight()
+	alpha := u8(fade * f32(255))
+	rl.DrawRectangle(0, 0, w, h, rl.Color{0, 0, 0, alpha})
+}
+
+
+transition_to :: proc(next_state_proc: proc() -> GameState) {
+	transition := Transition {
+		time_fade_in    = 0,
+		time_fade_out   = 0,
+		fade_in_done    = false,
+		next_state_proc = next_state_proc,
+	}
+	gm.state.transition = transition
+	gm.state.in_transition = true
 }
 
 // ------------
@@ -86,9 +83,7 @@ init_gs_menu :: proc() -> GameState {
 
 update_gs_menu :: proc(dt: f32) {
 	if rl.IsKeyPressed(.SPACE) {
-		// gm.state.should_transition = true
-		gm.state = init_gs_level(1, .BEGIN)
-		// gm.state.transition = init_gs_level_transition(&next_state)
+		transition_to(proc() -> GameState {return init_gs_level(1, .BEGIN)})
 	}
 }
 
@@ -142,19 +137,14 @@ check_exit :: proc() -> bool {
 	player_pos := gm.player.pos
 	current_level := gm.level
 
-	fmt.printfln("{} {}", gm.player.pos, current_level)
 	level_state := gm.state.gs.(GS_Level)
 	current_level_id := level_state.level_id
 
 	if player_pos == current_level.exit_pos {
 		if current_level_id <= LEVEL_AMOUNT - 1 {
-			// next_level := init_gs_level(current_level_id, progress)
-			gm.state = init_gs_level(current_level_id + 1, level_state.progress)
-			// gm.state.should_transition = true
+			transition_to(proc() -> GameState {return next_gs_level()})
 		} else {
-			// next_state := init_gs_won()
-			gm.state = init_gs_won()
-			// gm.state.should_transition = true
+			transition_to(proc() -> GameState {return init_gs_won()})
 		}
 		return true
 	}
@@ -193,7 +183,7 @@ handle_input :: proc() {
 		if next > LEVEL_AMOUNT {
 			next = 1
 		}
-		gm.state = init_gs_level(next, .BEGIN)
+		gm.state = init_gs_level(next, level.progress)
 	}
 }
 
@@ -240,17 +230,14 @@ update_light_zoom :: proc() {
 }
 
 update_gs_level :: proc(dt: f32) {
-
+	clear_d_light(gm.level.cells)
+	compute_d_light(gm.level)
+	update_light_zoom()
 	if check_exit() {
-		// fmt.println(gm.state)
 		return
 	}
 	update_player(&gm.player, &gm.level, dt)
-	update_light_zoom()
 	handle_input()
-	clear_d_light(gm.level.cells)
-	compute_d_light(gm.level)
-	// fmt.println("hello")
 }
 
 draw_ui :: proc(player: Player) {
@@ -298,6 +285,17 @@ draw_gs_level :: proc(dt: f32) {
 	rl.EndMode2D()
 }
 
+
+next_gs_level :: proc() -> GameState {
+	level_id: int = 1
+	progress: Progress = .BEGIN
+	if level, is_level := gm.state.gs.(GS_Level); is_level {
+		level_id = level.level_id + 1
+		progress = level.progress
+	}
+
+	return init_gs_level(level_id, progress)
+}
 
 init_gs_level :: proc(level_id: int, progress: Progress) -> GameState {
 	load_level(level_id)

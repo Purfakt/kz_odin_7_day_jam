@@ -89,13 +89,11 @@ load_level :: proc(level_num: int) {
 
 
 update :: proc(dt: f32) {
-	// if gm.state.should_transition {
-	// 	fmt.printfln("{}", "should transition")
-	// 	update_transition(dt)
-	// 	draw_transition(gm.state.transition.fade)
-	// } else {
+	if gm.state.in_transition {
+		update_transition(dt)
+		return
+	}
 	gm.state.update(dt)
-	// }
 }
 
 
@@ -104,7 +102,7 @@ draw :: proc(dt: f32) {
 
 	gm.state.draw(dt)
 
-	if gm.debug.active {
+	if _, in_level := gm.state.gs.(GS_Level); in_level && gm.debug.active {
 		level := gm.level
 		player := gm.player
 		mouse_world := rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera())
@@ -182,6 +180,11 @@ draw :: proc(dt: f32) {
 			rl.WHITE,
 		)
 		rl.EndMode2D()
+	}
+
+
+	if gm.state.in_transition {
+		draw_transition(gm.state.transition.fade)
 	}
 
 	rl.EndDrawing()
