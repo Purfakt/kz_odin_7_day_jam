@@ -143,8 +143,8 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	}
 
 	compute_s_light(cells, s_light_sources, {width, height})
-
 	level = {cells, items, player_pos, exit_pos, width, height, d_light_sources}
+	compute_d_light(level)
 	return
 }
 
