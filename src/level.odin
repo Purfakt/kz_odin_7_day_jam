@@ -265,6 +265,14 @@ get_dimmed_color :: proc(light: f32, color: rl.Color) -> rl.Color {
 	return rl.ColorLerp(rl.BLACK, color, light_ratio)
 }
 
+get_dimmed_alpha :: proc(light: f32) -> rl.Color {
+	if (light <= 0.01) {
+		return rl.BLACK
+	}
+	light_ratio := math.log2_f32(light) / math.log2_f32(MAX_LIGHT)
+	return rl.ColorLerp(rl.BLACK, rl.WHITE, light_ratio)
+}
+
 draw_level :: proc(level: Level) {
 	for c in level.cells[:] {
 		x := i32(c.pos.x * CELL_SIZE)
@@ -296,6 +304,48 @@ draw_level :: proc(level: Level) {
 		item_size := i32(CELL_SIZE / 2)
 		margin := (CELL_SIZE - item_size) / 2
 		rl.DrawRectangle(x + margin, y + margin, item_size, item_size, item.color)
+	}
+}
+
+draw_level_sprite :: proc(level: Level) {
+	for c in level.cells[:] {
+		x := f32(c.pos.x * CELL_SIZE)
+		y := f32(c.pos.y * CELL_SIZE)
+		sprite_id := SpriteId.Void
+		s_light := c.s_light
+		d_light := c.d_light
+
+
+		switch t in c.type {
+		case CellVoid:
+			break
+		case CellFloor:
+			sprite_id = .Floor
+		case CellExit:
+			sprite_id = .Exit
+		case CellWall:
+			sprite_id = .Wall
+		}
+
+		light := max(d_light, s_light)
+		light = min(light, MAX_LIGHT)
+
+		rl.DrawTextureRec(gm.atlas, AtlasSprite[sprite_id], {x, y}, get_dimmed_alpha(light))
+	}
+
+	for pos, item in level.items {
+		x := f32(pos.x * CELL_SIZE)
+		y := f32(pos.y * CELL_SIZE)
+		sprite_id := SpriteId.Void
+
+		switch item.type {
+		case .Torch:
+			sprite_id = .Torch
+		case .WallTorch:
+			sprite_id = .WallTorch
+		}
+
+		rl.DrawTextureRec(gm.atlas, AtlasSprite[sprite_id], {x, y}, rl.WHITE)
 	}
 }
 

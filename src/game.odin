@@ -42,6 +42,7 @@ DebugLight :: enum {
 	Dynamic,
 	Both,
 }
+
 DebugInfo :: struct {
 	active:      bool,
 	debug_light: DebugLight,
@@ -52,6 +53,8 @@ Game_Memory :: struct {
 	player: Player,
 	state:  GameState,
 	debug:  DebugInfo,
+	atlas:  rl.Texture2D,
+	sounds: Sounds,
 }
 
 gm: ^Game_Memory
@@ -63,7 +66,7 @@ game_camera :: proc() -> rl.Camera2D {
 	zoom := f32(1)
 
 	if state, ok := &gm.state.gs.(GS_Level); ok {
-		zoom = state.current_zoom
+		zoom = state.current_zoom * 2
 	}
 
 	return {zoom = zoom, target = gm.player.screen_pos, offset = {w / 2, h / 2}}
@@ -265,11 +268,15 @@ game_init_window :: proc() {
 
 @(export)
 game_init :: proc() {
+	rl.InitAudioDevice()
+
 	gm = new(Game_Memory)
 
 	gm^ = Game_Memory {
-		state = init_gs_menu(),
-		player = Player{id = new_id()},
+		state  = init_gs_menu(),
+		player = init_player(),
+		atlas  = init_atlas(),
+		sounds = init_sounds(),
 	}
 
 	game_hot_reloaded(gm)
@@ -289,7 +296,9 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	rl.CloseAudioDevice()
 	destroy_level(&gm.level)
+	destroy_sounds(&gm.sounds)
 	free(gm)
 }
 

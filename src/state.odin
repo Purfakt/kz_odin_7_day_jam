@@ -21,7 +21,7 @@ GS :: union {
 //  TRANSITION
 // ------------
 
-TRANSITION_TIME :: 1
+TRANSITION_TIME :: 0.2
 
 Transition :: struct {
 	time_fade_out:   f32,
@@ -141,6 +141,7 @@ check_exit :: proc() -> bool {
 	current_level_id := level_state.level_id
 
 	if player_pos == current_level.exit_pos {
+		play_exit_sound()
 		if current_level_id <= LEVEL_AMOUNT - 1 {
 			transition_to(proc() -> GameState {return next_gs_level()})
 		} else {
@@ -266,7 +267,7 @@ draw_ui :: proc(player: Player) {
 draw_gs_level :: proc(dt: f32) {
 	rl.ClearBackground(rl.BLACK)
 	rl.BeginMode2D(game_camera())
-	draw_level(gm.level)
+	draw_level_sprite(gm.level)
 	draw_player(gm.player)
 	draw_ui(gm.player)
 	rl.EndMode2D()

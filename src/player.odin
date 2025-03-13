@@ -9,6 +9,7 @@ Player :: struct {
 	using entity:      Entity,
 	screen_pos:        rl.Vector2,
 	target_pos:        Vec2i,
+	flip_x:            bool,
 	target_cell:       ^Cell,
 	surrounding_cells: [8]Cell,
 	can_move:          bool,
@@ -16,8 +17,10 @@ Player :: struct {
 	torch_on:          bool,
 }
 
-handle_movement_input :: proc(current_pos: Vec2i) -> Vec2i {
-	target: Vec2i = current_pos
+init_player :: proc() -> Player {return {id = new_id()}}
+
+handle_movement_input :: proc() -> Vec2i {
+	target: Vec2i
 	if (rl.IsKeyDown(.A)) {
 		target.x -= 1
 	}
@@ -47,15 +50,17 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 		speed = 50
 	}
 
-	if (rl.IsKeyPressed(.SPACE)) {
-		player.torch_on = !player.torch_on
-	}
-
 	target_pos := &player.target_pos
 	screen_pos := &player.screen_pos
 	can_move := &player.can_move
 
 	gs := gm.state.gs.(GS_Level)
+
+
+	if (gs.progress == .GOT_TORCH && rl.IsKeyPressed(.SPACE)) {
+		if player.torch_on {play_torch_off_sound()} else {play_torch_on_sound()}
+		player.torch_on = !player.torch_on
+	}
 
 	if player.torch_on && player.light != 0 {
 		if gs.progress == .GOT_TORCH {
@@ -67,7 +72,8 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 	}
 
 	if can_move^ {
-		new_target := handle_movement_input(target_pos^)
+		direction := handle_movement_input()
+		new_target := target_pos^ + direction
 
 		if new_target == target_pos^ {
 			return
@@ -82,6 +88,8 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 
 		if ((player.light > 0 && player.torch_on) || cell_light > 0) && cell.walkable {
 			target_pos^ = new_target
+			player.flip_x = direction.x == 0 ? player.flip_x : direction.x < 0
+			play_step_sound()
 
 			if player.torch_on {
 				player.light -= player.light <= 0 ? 0 : light_per_step
@@ -91,6 +99,7 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 					gs.progress = .GOT_TORCH
 				}
 				player.light += item.light
+				play_torch_item_sound()
 				delete_key(&level.items, new_target)
 				if _, has_source := level.d_light_sources[item.id]; has_source {
 					delete_key(&level.d_light_sources, item.id)
@@ -112,7 +121,36 @@ update_player :: proc(player: ^Player, level: ^Level, frame_time: f32) {
 }
 
 draw_player :: proc(player: Player) {
-	player_rect := rl.Rectangle{player.screen_pos.x, player.screen_pos.y, CELL_SIZE, CELL_SIZE}
+	source := AtlasSprite[.Player_Fine]
 
-	rl.DrawRectangleRec(player_rect, rl.WHITE)
+	switch gm.state.gs.(GS_Level).target_zoom {
+	case 0 ..< 2:
+		source = AtlasSprite[.Player_Fine]
+	case 2 ..< 3:
+		source = AtlasSprite[.Player_Meh]
+	case 3 ..< 4:
+		source = AtlasSprite[.Player_Scared]
+	case 4 ..< 1000:
+		source = AtlasSprite[.Player_Cry]
+	}
+
+	if player.flip_x {
+		source.width = -source.width
+	}
+	rl.DrawTextureRec(gm.atlas, source, {player.screen_pos.x, player.screen_pos.y}, rl.WHITE)
+
+	if player.torch_on {
+		torch_source := AtlasSprite[.Torch]
+		x_offset := f32(CELL_SIZE / 2.5)
+		if player.flip_x {
+			torch_source.width = -torch_source.width
+			x_offset = -x_offset
+		}
+		rl.DrawTextureRec(
+			gm.atlas,
+			torch_source,
+			{player.screen_pos.x + f32(x_offset), player.screen_pos.y},
+			rl.WHITE,
+		)
+	}
 }
