@@ -13,15 +13,11 @@ Sounds :: struct {
 }
 
 init_sounds :: proc() -> Sounds {
-	step := rl.LoadSound("assets/step2.wav")
+	step := rl.LoadSound("assets/step.wav")
 	exit := rl.LoadSound("assets/exit.wav")
 	torch := rl.LoadSound("assets/torch.wav")
 	torch_on := rl.LoadSound("assets/torch-on.wav")
 	torch_off := rl.LoadSound("assets/torch-off.wav")
-
-	rl.SetSoundVolume(torch, 0.2)
-	rl.SetSoundVolume(torch_on, 0.2)
-	rl.SetSoundVolume(torch_off, 0.2)
 
 	return Sounds {
 		step = step,
