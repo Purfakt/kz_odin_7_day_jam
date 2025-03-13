@@ -28,6 +28,7 @@ Level :: struct {
 	d_light_sources:  map[Id]LightSource,
 }
 
+COL_VOID :: rl.BLACK
 COL_FLOOR :: rl.Color{10, 10, 10, 255}
 COL_WALL :: rl.Color{27, 28, 51, 255}
 COL_WALL_TORCH :: rl.Color{230, 218, 41, 255}
@@ -66,6 +67,7 @@ Cell :: struct {
 	d_light:      f32,
 	walkable:     bool,
 	type:         CellType,
+	sprite_id:    SpriteId,
 }
 
 load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
@@ -99,6 +101,7 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 			color := rl.GetImageColor(image, i32(x), i32(y))
 
 			cell_type: CellType = CellVoid{}
+			sprite_id: SpriteId = .Void
 			pos: Vec2i = {x, y}
 			walkable: bool
 			s_light: f32
@@ -107,9 +110,11 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 			switch color.rgba {
 			case COL_WALL:
 				cell_type = CellWall{}
+				sprite_id = .Wall
 				break
 			case COL_WALL_TORCH:
 				cell_type = CellWall{}
+				sprite_id = .Wall
 				s_light = MAX_LIGHT
 				item := Item{{new_id(), pos}, .WallTorch, s_light, COL_WALL_TORCH, false}
 				s_light_sources[item.id] = {item.pos, item.light}
@@ -117,9 +122,11 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			case COL_FLOOR:
 				cell_type = CellFloor{}
+				sprite_id = .Floor
 				walkable = true
 			case COL_ITEM_TORCH:
 				cell_type = CellFloor{}
+				sprite_id = .Floor
 				walkable = true
 				d_light = 10
 				item := Item{{new_id(), pos}, .Torch, d_light, COL_ITEM_TORCH, true}
@@ -128,18 +135,38 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			case COL_EXIT:
 				cell_type = CellExit{}
+				sprite_id = .Exit
 				exit_pos = {x, y}
 				walkable = true
 				break
 			case COL_PLAYER:
+				sprite_id = .Floor
 				cell_type = CellFloor{}
 				walkable = true
 				player_pos = {x, y}
 				break
 			}
 
-			cells[(y * width) + x] = Cell{{new_id(), pos}, s_light, d_light, walkable, cell_type}
+			cells[(y * width) + x] = Cell {
+				{new_id(), pos},
+				s_light,
+				d_light,
+				walkable,
+				cell_type,
+				sprite_id,
+			}
 		}
+	}
+
+	for &c in cells {
+		if v, is_void := c.type.(CellVoid); !is_void {
+			continue
+		}
+
+		// cardinals: bit_set[Cardinals]
+		// c_id := (c.y * width) + c.x
+		// index := 0
+
 	}
 
 	compute_s_light(cells, s_light_sources, {width, height})
@@ -311,21 +338,9 @@ draw_level_sprite :: proc(level: Level) {
 	for c in level.cells[:] {
 		x := f32(c.pos.x * CELL_SIZE)
 		y := f32(c.pos.y * CELL_SIZE)
-		sprite_id := SpriteId.Void
+		sprite_id := c.sprite_id
 		s_light := c.s_light
 		d_light := c.d_light
-
-
-		switch t in c.type {
-		case CellVoid:
-			break
-		case CellFloor:
-			sprite_id = .Floor
-		case CellExit:
-			sprite_id = .Exit
-		case CellWall:
-			sprite_id = .Wall
-		}
 
 		light := max(d_light, s_light)
 		light = min(light, MAX_LIGHT)
