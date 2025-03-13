@@ -54,7 +54,7 @@ Game_Memory :: struct {
 	state:  GameState,
 	debug:  DebugInfo,
 	atlas:  rl.Texture2D,
-	sounds: Sounds,
+	audio:  Audio,
 }
 
 gm: ^Game_Memory
@@ -104,6 +104,11 @@ handle_input :: proc() {
 		gm.debug.active = !gm.debug.active
 	}
 
+	if (rl.IsKeyPressed(.M)) {
+		volume := gm.audio.volume
+		set_audio_level(volume > 0.5 ? 0 : 1)
+	}
+
 	gs := gm.state.gs
 	#partial switch state in gs {
 	case GS_Level:
@@ -139,6 +144,7 @@ handle_input :: proc() {
 
 
 update :: proc(dt: f32) {
+	play_music()
 	handle_input()
 	if gm.state.in_transition {
 		update_transition(dt)
@@ -269,6 +275,7 @@ game_init_window :: proc() {
 @(export)
 game_init :: proc() {
 	rl.InitAudioDevice()
+	rl.SetAudioStreamBufferSizeDefault(4096)
 
 	gm = new(Game_Memory)
 
@@ -276,7 +283,7 @@ game_init :: proc() {
 		state  = init_gs_menu(),
 		player = init_player(),
 		atlas  = init_atlas(),
-		sounds = init_sounds(),
+		audio  = init_sounds(),
 	}
 
 	game_hot_reloaded(gm)
@@ -298,7 +305,7 @@ game_should_run :: proc() -> bool {
 game_shutdown :: proc() {
 	rl.CloseAudioDevice()
 	destroy_level(&gm.level)
-	destroy_sounds(&gm.sounds)
+	destroy_sounds()
 	free(gm)
 }
 
