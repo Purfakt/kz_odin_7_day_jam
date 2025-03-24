@@ -34,15 +34,6 @@ PIXEL_WINDOW_HEIGHT :: 360
 
 LEVEL_AMOUNT :: 3
 
-CARDINAL_POINTS :: [8][2]int{{-1, 1}, {0, 1}, {1, 1}, {-1, 0}, {1, 0}, {-1, -1}, {0, -1}, {1, -1}}
-
-Cardinals :: enum {
-	N,
-	E,
-	S,
-	W,
-}
-
 DebugLight :: enum {
 	None,
 	Static,

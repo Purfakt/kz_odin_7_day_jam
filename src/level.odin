@@ -70,6 +70,30 @@ Cell :: struct {
 	sprite_id:    SpriteId,
 }
 
+CARDINAL_POINTS :: [8][2]int{{-1, 1}, {0, 1}, {1, 1}, {-1, 0}, {1, 0}, {-1, -1}, {0, -1}, {1, -1}}
+
+Cardinals :: enum {
+	N,
+	NE,
+	E,
+	SE,
+	S,
+	SW,
+	W,
+	NW,
+}
+
+CardinalOffset: [Cardinals][2]int = {
+	.N  = {0, -1},
+	.NE = {1, -1},
+	.E  = {1, 0},
+	.SE = {1, 1},
+	.S  = {0, 1},
+	.SW = {-1, 1},
+	.W  = {-1, 0},
+	.NW = {-1, -1},
+}
+
 load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	image_data, ok := u.read_entire_file(file_path)
 
@@ -86,6 +110,8 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 	width := int(image.width)
 	height := int(image.height)
 	cells := make([dynamic]Cell, width * height)
+	walls := make(map[int]bool)
+	defer delete(walls)
 
 	player_pos: Vec2i
 	exit_pos: Vec2i
@@ -98,6 +124,7 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 
 	for y := 0; y < height; y += 1 {
 		for x := 0; x < width; x += 1 {
+			id := (y * width) + x
 			color := rl.GetImageColor(image, i32(x), i32(y))
 
 			cell_type: CellType = CellVoid{}
@@ -111,6 +138,7 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 			case COL_WALL:
 				cell_type = CellWall{}
 				sprite_id = .Wall
+				walls[id] = true
 				break
 			case COL_WALL_TORCH:
 				cell_type = CellWall{}
@@ -119,6 +147,7 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				item := Item{{new_id(), pos}, .WallTorch, s_light, COL_WALL_TORCH, false}
 				s_light_sources[item.id] = {item.pos, item.light}
 				items[pos] = item
+				walls[id] = true
 				break
 			case COL_FLOOR:
 				cell_type = CellFloor{}
@@ -147,26 +176,58 @@ load_level_png :: proc(file_path: string) -> (level: Level, err: string) {
 				break
 			}
 
-			cells[(y * width) + x] = Cell {
-				{new_id(), pos},
-				s_light,
-				d_light,
-				walkable,
-				cell_type,
-				sprite_id,
-			}
+			cells[id] = Cell{{new_id(), pos}, s_light, d_light, walkable, cell_type, sprite_id}
 		}
 	}
 
 	for &c in cells {
-		if v, is_void := c.type.(CellVoid); !is_void {
+		if _, is_void := c.type.(CellVoid); !is_void {
 			continue
 		}
 
-		// cardinals: bit_set[Cardinals]
-		// c_id := (c.y * width) + c.x
-		// index := 0
+		x, y := c.pos.x, c.pos.y
 
+		cardinals: bit_set[Cardinals]
+
+		for off, car in CardinalOffset {
+			nx, ny := x + off[0], y + off[1]
+
+			if nx < 0 || nx >= width || ny < 0 || ny >= height {
+				continue
+			}
+			nidx := (ny * width) + nx
+
+			if walls[nidx] == true {
+				cardinals += {car}
+			}
+		}
+
+		check_wall := cardinals & {.N, .S, .E, .W}
+
+		switch check_wall {
+		case {.N}:
+			c.sprite_id = .Void_1_N
+		case {.N, .E}:
+			c.sprite_id = .Void_2_NE
+		case {.N, .W}:
+			c.sprite_id = .Void_2_NW
+		case {.N, .E, .S}:
+			c.sprite_id = .Void_3_NSE
+		case {.N, .W, .S}:
+			c.sprite_id = .Void_3_NSW
+		case {.N, .S}:
+			c.sprite_id = .Void_2_NS
+		case {.S}:
+			c.sprite_id = .Void_1_S
+		case {.S, .W}:
+			c.sprite_id = .Void_2_SW
+		case {.S, .E}:
+			c.sprite_id = .Void_2_SE
+		case {.W}:
+			c.sprite_id = .Void_1_W
+		case {.E}:
+			c.sprite_id = .Void_1_E
+		}
 	}
 
 	compute_s_light(cells, s_light_sources, {width, height})

@@ -1,6 +1,5 @@
 package game
 
-import "core:fmt"
 import "core:math/rand"
 import rl "vendor:raylib"
 
@@ -57,14 +56,11 @@ play_music :: proc() {
 	music := gm.audio.music
 	if rl.IsMusicReady(music) && !rl.IsMusicStreamPlaying(music) {
 		rl.PlayMusicStream(music)
-		fmt.println("playing")
 	}
 
 	if rl.IsMusicStreamPlaying(music) {
 		rl.UpdateMusicStream(music)
 	}
-
-	fmt.printfln("{}", rl.GetMusicTimePlayed(music))
 }
 
 play_step_sound :: proc() {
